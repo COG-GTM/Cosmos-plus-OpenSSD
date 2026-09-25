@@ -1,0 +1,82 @@
+name: GreedyFTL firmware host tests
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - 'source/software/GreedyFTL-3.0.0/**'
+      - '.github/workflows/firmware-tests.yml'
+  pull_request:
+    paths:
+      - 'source/software/GreedyFTL-3.0.0/**'
+      - '.github/workflows/firmware-tests.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host-tests:
+    name: Build, test, coverage (ubuntu-latest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      BUILD_DIR: build/greedyftl-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential cmake lcov
+          gcc --version | head -1
+          cmake --version | head -1
+          lcov --version
+
+      - name: Cache Unity (FetchContent)
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.BUILD_DIR }}/_deps
+          key: unity-v2.6.0-${{ runner.os }}
+
+      - name: Configure
+        run: cmake -S source/software/GreedyFTL-3.0.0/test -B "$BUILD_DIR"
+
+      - name: Build
+        run: cmake --build "$BUILD_DIR" -j"$(nproc)"
+
+      - name: Run unit tests
+        run: ctest --test-dir "$BUILD_DIR" --output-on-failure
+
+      - name: Generate lcov coverage
+        run: cmake --build "$BUILD_DIR" --target coverage
+
+      - name: Publish coverage summary
+        if: always()
+        run: |
+          {
+            echo '## GreedyFTL-3.0.0 host test coverage'
+            echo
+            echo '```'
+            cat "$BUILD_DIR/coverage/summary.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload HTML coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: greedyftl-coverage-html
+          path: ${{ env.BUILD_DIR }}/coverage/html
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload lcov tracefile
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: greedyftl-coverage-lcov
+          path: ${{ env.BUILD_DIR }}/coverage/greedyftl.info
+          if-no-files-found: error
+          retention-days: 30
