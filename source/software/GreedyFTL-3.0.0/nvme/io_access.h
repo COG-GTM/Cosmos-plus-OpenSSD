@@ -48,7 +48,13 @@
 #ifndef __IO_ACCESS_H_
 #define __IO_ACCESS_H_
 
+#ifdef HOST_TEST
+#include "fake_regs.h"
+#define IO_WRITE32(addr, val)		fake_reg_write((unsigned int)(addr), (val))
+#define IO_READ32(addr)				fake_reg_read((unsigned int)(addr))
+#else
 #define IO_WRITE32(addr, val)		*((volatile unsigned int *)(addr)) = val
 #define IO_READ32(addr)				*((volatile unsigned int *)(addr))
+#endif
 
 #endif	//__IO_ACCESS_H_

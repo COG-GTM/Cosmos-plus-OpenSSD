@@ -54,7 +54,12 @@
 #define MAX_NUM_OF_IO_SQ	8
 #define MAX_NUM_OF_IO_CQ	8
 
+#ifdef HOST_TEST
+#include "host_memory.h"
+#define ADMIN_CMD_DRAM_DATA_BUFFER		HOST_TEST_ADMIN_CMD_BUFFER_ADDR
+#else
 #define ADMIN_CMD_DRAM_DATA_BUFFER		0x00200000
+#endif
 
 #define STORAGE_CAPACITY_L				0x00000000	// not used
 #define STORAGE_CAPACITY_H				0x00000000

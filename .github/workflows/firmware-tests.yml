@@ -1,0 +1,60 @@
+name: GreedyFTL host tests
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - "source/software/GreedyFTL-3.0.0/**"
+      - ".github/workflows/firmware-tests.yml"
+  pull_request:
+    paths:
+      - "source/software/GreedyFTL-3.0.0/**"
+      - ".github/workflows/firmware-tests.yml"
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: source/software/GreedyFTL-3.0.0/test
+
+jobs:
+  host-tests:
+    name: Build, test and measure coverage (ubuntu-latest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install lcov
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends lcov
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Run tests
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Coverage report
+        run: cmake --build build --target coverage 2>&1 | tee coverage.log
+
+      - name: Publish lcov summary to job summary
+        if: always()
+        run: |
+          {
+            echo "## GreedyFTL-3.0.0 host test coverage"
+            echo
+            echo '```'
+            sed -n '/==== lcov summary/,/HTML report/p' coverage.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload HTML coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: greedyftl-coverage-html
+          path: source/software/GreedyFTL-3.0.0/test/build/coverage/
+          if-no-files-found: error

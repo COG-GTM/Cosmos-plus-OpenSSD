@@ -51,7 +51,15 @@
 
 #define __ASSERT 1
 
-#if __ASSERT
+#if defined(HOST_TEST)
+#include <stdlib.h>
+#define ASSERT(X)														\
+if (!(X))																\
+{																		\
+	xil_printf("\r\n\nerror in %s: Line %d\r\n", __FILE__, __LINE__);	\
+	abort();															\
+}
+#elif __ASSERT
 #define ASSERT(X)														\
 if (!(X))																\
 {																		\
