@@ -29,7 +29,7 @@ sources only) and `html/index.html`.
 | `CMakeLists.txt` | Builds firmware sources with `-DHOST_TEST=1` and gcov flags into `libgreedyftl_fw.a`; one CTest per `tests/test_*.c`. |
 | `stubs/` | Header replacements for the Xilinx BSP (`xil_io.h`, `xil_printf.h`, `xparameters.h`, `xtime_l.h`, `xil_cache.h`, `xscugic.h`, ...). `Xil_In32/Xil_Out32` and `IO_READ32/IO_WRITE32` go through the fake register map. `host_memory_map.h` replaces the fixed DRAM layout. |
 | `fakes/host_mem.c` | `mmap`s a <4 GiB arena so the firmware's `unsigned int` DRAM addresses are real host pointers; table layout relative to `DRAM_START_ADDR` is unchanged. |
-| `fakes/fake_regs.c` | Sparse register map with a write journal, host-DMA command FIFO capture and NVMe completion counting. Tests assert on register writes and DMA descriptors. |
+| `fakes/fake_regs.c` | Sparse register map with a write journal, host-DMA command FIFO capture and NVMe completion counting. Tests assert on register writes and DMA descriptors. DMA descriptors are captured and counted as complete but no bytes are moved (there is no PCIe host-memory model); the NVMe command FIFO register pops one entry per read. |
 | `fakes/nsc_driver.c` | In-memory NAND behind the `V2F*` driver API: lazy per-page storage, erase-to-0xFF, program/read/erase, factory/grown bad-block marks, injectable failures, op counters. |
 | `tests/test_support.c` | Shared fixture: boots the FTL once, snapshots the DRAM arena and restores it per test; helpers to write/read slices through the real request queues. |
 | `tests/test_*.c` | Unity suites (see below). |

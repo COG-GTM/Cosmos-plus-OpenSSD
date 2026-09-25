@@ -33,6 +33,8 @@ static void bootFtl(void)
 	InitFTL();
 }
 
+/* Re-boots the FTL for the current test only; the per-test baseline snapshot taken by
+ * test_ftl_init() is deliberately left untouched so later tests stay order-independent. */
 void test_ftl_init_fresh(void)
 {
 	bootFtl();
