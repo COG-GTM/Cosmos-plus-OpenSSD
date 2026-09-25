@@ -169,12 +169,15 @@ static void test_gc_copies_valid_slices_then_erases_victim(void)
 	unsigned int blockNo = Vsa2VblockTranslation(staleVsa);
 	unsigned int staleLsa = virtualSliceMapPtr->virtualSlice[staleVsa].logicalSliceAddr;
 	unsigned int liveLsa = virtualSliceMapPtr->virtualSlice[liveVsa].logicalSliceAddr;
-	unsigned int newVsa;
+	unsigned int newVsa, validSlices;
 
 	TEST_ASSERT_EQUAL_UINT(blockNo, Vsa2VblockTranslation(liveVsa));
 	TEST_ASSERT_EQUAL_UINT(2, block(blockNo)->currentPage);
 
 	AddrTransWrite(staleLsa); /* invalidates staleVsa, block becomes a victim */
+	TEST_ASSERT_EQUAL_UINT(1, block(blockNo)->invalidSliceCnt);
+	/* The replacement slice may itself land in this block; count what GC must copy. */
+	validSlices = block(blockNo)->currentPage - block(blockNo)->invalidSliceCnt;
 	permit_block_pages(blockNo, block(blockNo)->currentPage);
 
 	GarbageCollection(TEST_DIE);
@@ -193,8 +196,8 @@ static void test_gc_copies_valid_slices_then_erases_victim(void)
 	FW_EXPECT_ASSERT(GetFromGcVictimList(TEST_DIE));
 
 	SyncAllLowLevelReqDone();
-	TEST_ASSERT_EQUAL_UINT(1, mock_nsc_count_cmd(V2FCommand_ReadPageTrigger));
-	TEST_ASSERT_EQUAL_UINT(1, mock_nsc_count_cmd(V2FCommand_ProgramPage));
+	TEST_ASSERT_EQUAL_UINT(validSlices, mock_nsc_count_cmd(V2FCommand_ReadPageTrigger));
+	TEST_ASSERT_EQUAL_UINT(validSlices, mock_nsc_count_cmd(V2FCommand_ProgramPage));
 	TEST_ASSERT_EQUAL_UINT(1, mock_nsc_count_cmd(V2FCommand_BlockErase));
 }
 
@@ -202,7 +205,10 @@ static void test_gc_of_fully_invalid_block_only_erases(void)
 {
 	unsigned int vsa = write_one_page_on_every_die(0);
 	unsigned int blockNo = Vsa2VblockTranslation(vsa);
+	unsigned int lsa = virtualSliceMapPtr->virtualSlice[vsa].logicalSliceAddr;
 
+	/* Drop the only live mapping so the block genuinely holds no valid data. */
+	logicalSliceMapPtr->logicalSlice[lsa].virtualSliceAddr = VSA_NONE;
 	block(blockNo)->invalidSliceCnt = SLICES_PER_BLOCK;
 	PutToGcVictimList(TEST_DIE, blockNo, SLICES_PER_BLOCK);
 	permit_block_pages(blockNo, block(blockNo)->currentPage);
@@ -215,6 +221,7 @@ static void test_gc_of_fully_invalid_block_only_erases(void)
 	TEST_ASSERT_EQUAL_UINT(1, mock_nsc_count_cmd(V2FCommand_BlockErase));
 	TEST_ASSERT_EQUAL_UINT(1, block(blockNo)->free);
 	TEST_ASSERT_EQUAL_UINT(0, block(blockNo)->invalidSliceCnt);
+	TEST_ASSERT_EQUAL_HEX32(VSA_NONE, logicalSliceMapPtr->logicalSlice[lsa].virtualSliceAddr);
 }
 
 int main(void)

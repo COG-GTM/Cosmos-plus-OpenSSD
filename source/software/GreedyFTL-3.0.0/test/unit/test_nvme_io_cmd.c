@@ -214,6 +214,15 @@ static void exit_when_no_more_commands(mock_host_call_kind_t kind)
 		fw_loop_exit();
 }
 
+/* Exits only once the command queue is drained and the low-level loop is idle. */
+static void exit_when_all_work_retired(mock_host_call_kind_t kind)
+{
+	if (kind == MOCK_HOST_GET_NVME_CMD && mock_host_pending_cmds() == 0 &&
+	    nvmeDmaReqQ.headReq == REQ_SLOT_TAG_NONE &&
+	    notCompletedNandReqCnt == 0 && blockedReqCnt == 0)
+		fw_loop_exit();
+}
+
 static void push_cmd(unsigned short qID, unsigned short cmdSlotTag, const NVME_COMMAND *cmd)
 {
 	mock_host_nvme_cmd_t pending;
@@ -281,17 +290,21 @@ static void test_nvme_main_dispatches_io_command_and_issues_dma(void)
 {
 	NVME_COMMAND cmd = make_io_cmd(IO_NVM_WRITE, 3);
 
+	unsigned int freeReqsBefore = freeReqQ.reqCnt;
+
 	set_lba_range(&cmd, 0, 0);
 	push_cmd(1, 3, &cmd);
 
 	g_nvmeTask.status = NVME_TASK_RUNNING;
-	mock_host_set_hook(exit_when_no_more_commands);
+	mock_host_set_hook(exit_when_all_work_retired);
 
 	FW_RUN_UNTIL_LOOP_EXIT(nvme_main());
 
 	TEST_ASSERT_EQUAL_UINT(0, sliceReqQ.reqCnt);
 	TEST_ASSERT_EQUAL_UINT(1, mock_host_count(MOCK_HOST_SET_AUTO_RX_DMA));
 	TEST_ASSERT_EQUAL_UINT(3, mock_host_last(MOCK_HOST_SET_AUTO_RX_DMA)->args[0]);
+	TEST_ASSERT_EQUAL_UINT(REQ_SLOT_TAG_NONE, nvmeDmaReqQ.headReq);
+	TEST_ASSERT_EQUAL_UINT(freeReqsBefore, freeReqQ.reqCnt);
 }
 
 static void test_nvme_main_shutdown_tears_down_queues_and_waits_for_reset(void)

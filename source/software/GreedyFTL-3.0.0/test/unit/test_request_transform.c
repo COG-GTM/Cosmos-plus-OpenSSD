@@ -4,6 +4,9 @@
 #include "fw_test.h"
 #include "memory_map.h"
 
+/* Defined in request_transform.c but not exported by its header. */
+unsigned int CheckRowAddrDep(unsigned int reqSlotTag, unsigned int checkRowAddrDepOpt);
+
 #define CMD_SLOT 5
 #define TEST_DIE 0
 #define TEST_BLOCK 3
@@ -404,7 +407,7 @@ static void test_select_rejects_unsupported_request_options(void)
 	unsigned int badDmaCode = make_nand_req(REQ_CODE_READ, TEST_BLOCK, 0);
 
 	req(badType)->reqType = REQ_TYPE_SLICE;
-	req(badAddr)->reqOpt.nandAddr = 0xFF;
+	req(badAddr)->reqOpt.nandAddr = REQ_OPT_NAND_ADDR_PHY_ORG + 1;
 	req(badDmaCode)->reqType = REQ_TYPE_NVME_DMA;
 	req(badDmaCode)->reqOpt.dataBufFormat = REQ_OPT_DATA_BUF_ENTRY;
 	req(badDmaCode)->dataBufInfo.entry = 0;
