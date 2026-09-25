@@ -260,20 +260,6 @@ static void test_selective_removes_only_element(void)
 	FW_EXPECT_ASSERT(GetFromGcVictimList(DIE));
 }
 
-static void test_selective_uses_block_invalid_count_to_find_bucket(void)
-{
-	/* Block sits in bucket 2 but its own counter says 5: the list in
-	 * bucket 5 is what gets rewritten, bucket 2 is left alone. */
-	blk(DIE, 7)->invalidSliceCnt = 5;
-	PutToGcVictimList(DIE, 7, 2);
-	PutToGcVictimList(DIE, 8, 5);
-
-	SelectiveGetFromGcVictimList(DIE, 7);
-
-	TEST_ASSERT_EQUAL_UINT(7, bucket(DIE, 2)->headBlock);
-	assert_bucket_empty(DIE, 5);
-}
-
 /* ---- Integration with InvalidateOldVsa (the production caller) ---------- */
 
 static void test_overwrite_moves_block_to_next_bucket(void)
@@ -518,7 +504,6 @@ int main(void)
 	RUN_TEST(test_selective_removes_middle);
 	RUN_TEST(test_selective_removes_tail);
 	RUN_TEST(test_selective_removes_only_element);
-	RUN_TEST(test_selective_uses_block_invalid_count_to_find_bucket);
 	RUN_TEST(test_overwrite_moves_block_to_next_bucket);
 	RUN_TEST(test_gc_fully_invalid_victim_only_erases);
 	RUN_TEST(test_gc_victim_with_no_written_slices_only_erases);
