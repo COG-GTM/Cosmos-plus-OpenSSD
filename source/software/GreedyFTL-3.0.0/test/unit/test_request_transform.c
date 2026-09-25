@@ -113,18 +113,29 @@ static void assert_slice_req(unsigned int tag, unsigned int reqCode, unsigned in
 
 static void test_init_dependency_table_clears_every_entry(void)
 {
-	P_ROW_ADDR_DEPENDENCY_ENTRY e = &rowAddrDependencyTablePtr->block[0][0][5];
+	P_ROW_ADDR_DEPENDENCY_ENTRY e;
+	unsigned int ch, way, blk;
 
-	e->permittedProgPage = 7;
-	e->blockedReadReqCnt = 3;
-	e->blockedEraseReqFlag = 1;
+	for (ch = 0; ch < USER_CHANNELS; ch++)
+		for (way = 0; way < USER_WAYS; way++)
+			for (blk = 0; blk < MAIN_BLOCKS_PER_DIE; blk++) {
+				e = &rowAddrDependencyTablePtr->block[ch][way][blk];
+				e->permittedProgPage = 7;
+				e->blockedReadReqCnt = 3;
+				e->blockedEraseReqFlag = 1;
+			}
 
 	InitDependencyTable();
 
 	TEST_ASSERT_EQUAL_PTR(fw_ptr(ROW_ADDR_DEPENDENCY_TABLE_ADDR), rowAddrDependencyTablePtr);
-	TEST_ASSERT_EQUAL_UINT(0, e->permittedProgPage);
-	TEST_ASSERT_EQUAL_UINT(0, e->blockedReadReqCnt);
-	TEST_ASSERT_EQUAL_UINT(0, e->blockedEraseReqFlag);
+	for (ch = 0; ch < USER_CHANNELS; ch++)
+		for (way = 0; way < USER_WAYS; way++)
+			for (blk = 0; blk < MAIN_BLOCKS_PER_DIE; blk++) {
+				e = &rowAddrDependencyTablePtr->block[ch][way][blk];
+				TEST_ASSERT_EQUAL_UINT(0, e->permittedProgPage);
+				TEST_ASSERT_EQUAL_UINT(0, e->blockedReadReqCnt);
+				TEST_ASSERT_EQUAL_UINT(0, e->blockedEraseReqFlag);
+			}
 }
 
 /* ------------------------------------------------------------------------ */
