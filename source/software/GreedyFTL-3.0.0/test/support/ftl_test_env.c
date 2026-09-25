@@ -1,8 +1,17 @@
 #include "ftl_test_env.h"
 
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+#ifdef GREEDYFTL_COVERAGE
+void __gcov_dump(void);
+void __gcov_reset(void);
+#endif
 
 /* InitAddressMap() always looks for the bad-block table in physical block 0. */
 #define BBT_PHY_BLOCK 0
@@ -14,10 +23,16 @@
  */
 static void PreloadBadBlockTables(void)
 {
+	ftl_test_env_preload_bbt_except(-1, -1);
+}
+
+void ftl_test_env_preload_bbt_except(int skipCh, int skipWay)
+{
 	unsigned int ch, way;
 	for (ch = 0; ch < USER_CHANNELS; ch++)
 		for (way = 0; way < USER_WAYS; way++)
-			fake_nand_preload_bbt(ch, way, BBT_PHY_BLOCK);
+			if ((int)ch != skipCh || (int)way != skipWay)
+				fake_nand_preload_bbt(ch, way, BBT_PHY_BLOCK);
 }
 
 static void ResetFakes(void)
@@ -28,12 +43,22 @@ static void ResetFakes(void)
 	host_memory_init();
 }
 
-static void BringUp(void)
+void ftl_test_env_reset_fakes(void)
 {
-	PreloadBadBlockTables();
+	ResetFakes();
+}
+
+void ftl_test_env_bring_up(void)
+{
 	InitFTL();
 	ftl_test_drain();
 	fake_regs_reset();
+}
+
+static void BringUp(void)
+{
+	PreloadBadBlockTables();
+	ftl_test_env_bring_up();
 }
 
 void ftl_test_env_init(void)
@@ -44,12 +69,63 @@ void ftl_test_env_init(void)
 
 void ftl_test_env_init_with_bad_block(unsigned int phyBlockNo)
 {
-	unsigned int ch, way;
+	ftl_test_env_init_with_bad_blocks(&phyBlockNo, 1);
+}
+
+void ftl_test_env_init_with_bad_blocks(const unsigned int *phyBlockNos, unsigned int count)
+{
+	unsigned int ch, way, i;
 	ResetFakes();
 	for (ch = 0; ch < USER_CHANNELS; ch++)
 		for (way = 0; way < USER_WAYS; way++)
-			fake_nand_mark_bad(ch, way, phyBlockNo);
+			for (i = 0; i < count; i++)
+				fake_nand_mark_bad(ch, way, phyBlockNos[i]);
 	BringUp();
+}
+
+static void OnChildAbort(int sig)
+{
+	(void)sig;
+#ifdef GREEDYFTL_COVERAGE
+	__gcov_dump();
+#endif
+	_exit(0x7F);
+}
+
+int ftl_test_expect_abort(void (*fn)(void))
+{
+	int status = 0;
+	pid_t pid;
+
+	fflush(stdout);
+	pid = fork();
+	if (pid < 0)
+	{
+		perror("ftl_test_expect_abort: fork");
+		return 0;
+	}
+	if (pid == 0)
+	{
+#ifdef GREEDYFTL_COVERAGE
+		__gcov_reset();
+#endif
+		signal(SIGABRT, OnChildAbort);
+		fn();
+#ifdef GREEDYFTL_COVERAGE
+		__gcov_dump();
+#endif
+		_exit(0);
+	}
+	if (waitpid(pid, &status, 0) != pid)
+		return 0;
+	return WIFEXITED(status) && WEXITSTATUS(status) == 0x7F;
+}
+
+unsigned char *ftl_test_bbt_entry(unsigned int ch, unsigned int way, unsigned int bbtPhyBlock, unsigned int phyBlockNo)
+{
+	unsigned int vpage = PlsbPage2VpageTranslation(START_PAGE_NO_OF_BAD_BLOCK_TABLE_BLOCK) + phyBlockNo / BYTES_PER_DATA_REGION_OF_PAGE;
+	unsigned int row = fake_nand_row_addr(bbtPhyBlock, Vpage2PlsbPageTranslation(vpage));
+	return fake_nand_row(ch, way, row) + phyBlockNo % BYTES_PER_DATA_REGION_OF_PAGE;
 }
 
 unsigned int ftl_test_pending_nand_reqs(void)

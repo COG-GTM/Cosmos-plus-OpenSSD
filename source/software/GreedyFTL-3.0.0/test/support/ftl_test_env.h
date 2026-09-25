@@ -40,6 +40,28 @@ void ftl_test_env_init(void);
  */
 void ftl_test_env_init_with_bad_block(unsigned int phyBlockNo);
 
+/* Same as above for several physical blocks (all marked on every die). */
+void ftl_test_env_init_with_bad_blocks(const unsigned int *phyBlockNos, unsigned int count);
+
+/*
+ * Split bring-up for tests that need to shape the fake NAND before InitFTL():
+ * reset the fakes, optionally preload the bad-block table on every die except
+ * (skipCh, skipWay) (pass -1 for both to preload all dies), then run InitFTL.
+ */
+void ftl_test_env_reset_fakes(void);
+void ftl_test_env_preload_bbt_except(int skipCh, int skipWay);
+void ftl_test_env_bring_up(void);
+
+/*
+ * Run `fn` in a forked child and report whether it died from abort()
+ * (i.e. hit an ASSERT/assert). gcov counters of the child are flushed before
+ * it exits so the lines leading up to the assertion are still counted.
+ */
+int ftl_test_expect_abort(void (*fn)(void));
+
+/* Pointer to the on-NAND bad-block table entry for `phyBlockNo` on die (ch, way). */
+unsigned char *ftl_test_bbt_entry(unsigned int ch, unsigned int way, unsigned int bbtPhyBlock, unsigned int phyBlockNo);
+
 /* Run the request scheduler until every NAND/NVMe request queue is empty. */
 void ftl_test_drain(void);
 

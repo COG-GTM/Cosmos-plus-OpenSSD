@@ -84,6 +84,9 @@ add_library(greedyftl_host STATIC
   support/ftl_test_env.c
 )
 target_link_libraries(greedyftl_host PUBLIC greedyftl_fw)
+if(GREEDYFTL_COVERAGE)
+  target_compile_definitions(greedyftl_host PRIVATE GREEDYFTL_COVERAGE)
+endif()
 target_include_directories(greedyftl_host PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/support)
 target_compile_options(greedyftl_host PRIVATE -Wall -Wextra -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast)
 
@@ -104,6 +107,10 @@ greedyftl_add_test(test_garbage_collection)
 greedyftl_add_test(test_data_buffer)
 greedyftl_add_test(test_request_allocation)
 greedyftl_add_test(test_nvme_cmd)
+greedyftl_add_test(test_bad_block_table)
+greedyftl_add_test(test_request_schedule)
+greedyftl_add_test(test_error_paths)
+greedyftl_add_test(test_data_buffer_lists)
 
 # ---------------------------------------------------------------------------
 # Coverage: `cmake --build build --target coverage`
@@ -135,7 +142,8 @@ if(GREEDYFTL_COVERAGE)
       COMMAND ${CMAKE_COMMAND} -E echo "HTML report: ${COVERAGE_DIR}/index.html"
       WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
       DEPENDS test_address_translation test_garbage_collection test_data_buffer
-              test_request_allocation test_nvme_cmd
+              test_request_allocation test_nvme_cmd test_bad_block_table
+              test_request_schedule test_error_paths test_data_buffer_lists
       VERBATIM
     )
   else()
