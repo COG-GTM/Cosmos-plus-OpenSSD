@@ -19,9 +19,10 @@ void EvictDataBufEntry(unsigned int originReqSlotTag);
 #define ENTRY_COUNT AVAILABLE_DATA_BUFFER_ENTRY_COUNT
 #define LAST_ENTRY  (AVAILABLE_DATA_BUFFER_ENTRY_COUNT - 1)
 
-/* The full InitFTL() boot (NAND scan + bad block table) is slow, and these
- * tests only touch the request pool, scheduler queues and data buffer, so boot
- * once and re-initialise just those tables before every test. */
+/* The full InitFTL() boot (NAND scan + bad block table) is slow, so boot once
+ * and re-initialise the tables these tests touch (request pool, scheduler
+ * queues, data buffer) before every test. The eviction tests, which allocate
+ * slices, additionally rebuild the address map via reset_address_map(). */
 void setUp(void)
 {
 	static int booted;
@@ -85,6 +86,13 @@ static void assert_lru_list_consistent(unsigned int expected_len)
 	}
 	TEST_ASSERT_EQUAL_UINT(expected_len, len);
 	TEST_ASSERT_EQUAL_UINT(prev, dataBufLruList.tailEntry);
+}
+
+/* Fresh logical->virtual slice map and block/die maps (~1 s: rereads the
+ * bad block table from the mocked NAND). */
+static void reset_address_map(void)
+{
+	InitAddressMap();
 }
 
 static unsigned int nand_req_total(void)
@@ -529,6 +537,7 @@ static void test_evicting_clean_entry_issues_no_nand_write(void)
 	unsigned int req = new_req_for_lsa(200);
 	unsigned int free_before = freeReqQ.reqCnt;
 
+	reset_address_map();
 	cache_lsa(12, 77);
 	buf(12)->dirty = DATA_BUF_CLEAN;
 	reqPoolPtr->reqPool[req].dataBufInfo.entry = 12;
@@ -547,6 +556,7 @@ static void test_evicting_dirty_entry_issues_nand_write_and_cleans_it(void)
 	unsigned int free_before = freeReqQ.reqCnt;
 	unsigned int write_req;
 
+	reset_address_map();
 	cache_lsa(12, 77);
 	buf(12)->dirty = DATA_BUF_DIRTY;
 	reqPoolPtr->reqPool[req].dataBufInfo.entry = 12;
@@ -579,6 +589,7 @@ static void test_dirty_eviction_write_is_blocked_behind_pending_req_on_entry(voi
 	unsigned int pending = GetFromFreeReqQ();
 	unsigned int write_req;
 
+	reset_address_map();
 	cache_lsa(12, 77);
 	buf(12)->dirty = DATA_BUF_DIRTY;
 	reqPoolPtr->reqPool[req].dataBufInfo.entry = 12;
@@ -594,6 +605,34 @@ static void test_dirty_eviction_write_is_blocked_behind_pending_req_on_entry(voi
 	TEST_ASSERT_EQUAL_UINT(1, blockedByBufDepReqQ.reqCnt);
 	TEST_ASSERT_EQUAL_UINT(write_req, blockedByBufDepReqQ.headReq);
 	TEST_ASSERT_EQUAL_UINT(DATA_BUF_CLEAN, buf(12)->dirty);
+}
+
+static void test_completing_pending_req_releases_blocked_eviction_write_to_nand(void)
+{
+	unsigned int req = new_req_for_lsa(200);
+	unsigned int pending = GetFromFreeReqQ();
+	unsigned int write_req;
+
+	reset_address_map();
+	cache_lsa(12, 77);
+	buf(12)->dirty = DATA_BUF_DIRTY;
+	reqPoolPtr->reqPool[req].dataBufInfo.entry = 12;
+	reqPoolPtr->reqPool[pending].reqOpt.dataBufFormat = REQ_OPT_DATA_BUF_ENTRY;
+	reqPoolPtr->reqPool[pending].dataBufInfo.entry = 12;
+	UpdateDataBufEntryInfoBlockingReq(12, pending);
+	EvictDataBufEntry(req);
+	write_req = buf(12)->blockingReqTail;
+	TEST_ASSERT_EQUAL_UINT(0, nand_req_total());
+
+	ReleaseBlockedByBufDepReq(pending);
+
+	TEST_ASSERT_EQUAL_UINT(0, blockedByBufDepReqQ.reqCnt);
+	TEST_ASSERT_EQUAL_UINT(1, nand_req_total());
+	TEST_ASSERT_EQUAL_UINT(REQ_QUEUE_TYPE_NAND, reqPoolPtr->reqPool[write_req].reqQueueType);
+	TEST_ASSERT_EQUAL_UINT(REQ_SLOT_TAG_NONE, reqPoolPtr->reqPool[write_req].prevBlockingReq);
+	TEST_ASSERT_EQUAL_UINT(REQ_SLOT_TAG_NONE, reqPoolPtr->reqPool[pending].nextBlockingReq);
+	/* The write is still the newest request on the entry. */
+	TEST_ASSERT_EQUAL_UINT(write_req, buf(12)->blockingReqTail);
 }
 
 int main(void)
@@ -637,5 +676,6 @@ int main(void)
 	RUN_TEST(test_evicting_clean_entry_issues_no_nand_write);
 	RUN_TEST(test_evicting_dirty_entry_issues_nand_write_and_cleans_it);
 	RUN_TEST(test_dirty_eviction_write_is_blocked_behind_pending_req_on_entry);
+	RUN_TEST(test_completing_pending_req_releases_blocked_eviction_write_to_nand);
 	return UNITY_END();
 }
