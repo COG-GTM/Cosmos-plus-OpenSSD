@@ -2,8 +2,11 @@
 #include "unity.h"
 
 #include "fw_test.h"
+#include "address_translation.h"
+#include "ftl_config.h"
 #include "memory_map.h"
 #include "nvme/host_lld.h"
+#include "xil_printf.h"
 
 void setUp(void) { fw_test_reset(); }
 void tearDown(void) {}
@@ -57,10 +60,46 @@ static void test_mock_io_queued_reads_take_priority(void)
 
 static void test_ftl_initialises_against_ideal_nand(void)
 {
-	fw_test_init_ftl();
+	InitFTL();
 
 	TEST_ASSERT_EQUAL_UINT(0, fw_assert_count());
 	TEST_ASSERT_TRUE(mock_nsc_count_cmd(V2FCommand_Reset) >= USER_DIES);
+	TEST_ASSERT_TRUE(mock_nsc_call_count() > MOCK_NSC_MAX_CALLS);
+}
+
+static void test_nsc_counters_survive_full_call_log(void)
+{
+	fw_test_init_ftl();
+	TEST_ASSERT_EQUAL_UINT(0, mock_nsc_call_count());
+
+	V2FEraseBlockAsync(chCtlReg[0], 0, 0x80U);
+
+	TEST_ASSERT_EQUAL_UINT(1, mock_nsc_count_cmd(V2FCommand_BlockErase));
+	TEST_ASSERT_EQUAL_UINT(0x80U, mock_nsc_last_call()->rowAddress);
+}
+
+static void test_fixture_rewinds_die_allocator_and_inbyte(void)
+{
+	stub_inbyte_set('X');
+	(void)FindDieForFreeSliceAllocation();
+
+	fw_test_reset();
+
+	TEST_ASSERT_EQUAL_UINT(0, FindDieForFreeSliceAllocation());
+	TEST_ASSERT_EQUAL_INT('\r', inbyte());
+}
+
+static void test_mock_direct_dma_tracks_fifo(void)
+{
+	set_direct_tx_dma(0x10000000U, 0, 0x1000U, 4096);
+	set_direct_rx_dma(0x10001000U, 0, 0x2000U, 4096);
+
+	TEST_ASSERT_EQUAL_UINT(1, g_hostDmaStatus.fifoTail.directDmaTx);
+	TEST_ASSERT_EQUAL_UINT(1, g_hostDmaStatus.fifoTail.directDmaRx);
+	check_direct_tx_dma_done();
+	check_direct_rx_dma_done();
+	TEST_ASSERT_EQUAL_UINT(1, g_hostDmaStatus.fifoHead.directDmaTx);
+	TEST_ASSERT_EQUAL_UINT(1, g_hostDmaStatus.fifoHead.directDmaRx);
 }
 
 int main(void)
@@ -72,5 +111,8 @@ int main(void)
 	RUN_TEST(test_io_macros_are_captured_by_mock_io);
 	RUN_TEST(test_mock_io_queued_reads_take_priority);
 	RUN_TEST(test_ftl_initialises_against_ideal_nand);
+	RUN_TEST(test_nsc_counters_survive_full_call_log);
+	RUN_TEST(test_fixture_rewinds_die_allocator_and_inbyte);
+	RUN_TEST(test_mock_direct_dma_tracks_fifo);
 	return UNITY_END();
 }

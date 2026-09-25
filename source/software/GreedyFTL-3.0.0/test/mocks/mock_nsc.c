@@ -7,6 +7,8 @@
 static mock_nsc_call_t calls[MOCK_NSC_MAX_CALLS];
 static unsigned int call_count;
 static unsigned int total_calls;
+static unsigned int cmd_counts[MOCK_NSC_MAX_CMD];
+static mock_nsc_call_t last_call;
 static mock_nsc_hook_t hook;
 static unsigned int controller_busy;
 static unsigned int ready_busy;
@@ -17,10 +19,17 @@ static unsigned int error_info0;
 static unsigned int error_info1;
 static unsigned char read_fill;
 
-void mock_nsc_reset(void)
+void mock_nsc_clear_calls(void)
 {
 	call_count = 0;
 	total_calls = 0;
+	memset(cmd_counts, 0, sizeof(cmd_counts));
+	memset(&last_call, 0, sizeof(last_call));
+}
+
+void mock_nsc_reset(void)
+{
+	mock_nsc_clear_calls();
 	hook = NULL;
 	controller_busy = 0;
 	ready_busy = MOCK_NSC_ALL_WAYS_READY;
@@ -45,6 +54,9 @@ static unsigned int channel_of(V2FMCRegisters *dev)
 static void record(mock_nsc_call_t *call)
 {
 	total_calls++;
+	if (call->cmd < MOCK_NSC_MAX_CMD)
+		cmd_counts[call->cmd]++;
+	last_call = *call;
 	if (call_count < MOCK_NSC_MAX_CALLS)
 		calls[call_count++] = *call;
 	if (hook)
@@ -72,17 +84,12 @@ const mock_nsc_call_t *mock_nsc_call_at(unsigned int index)
 
 unsigned int mock_nsc_count_cmd(unsigned int cmd)
 {
-	unsigned int i, count = 0;
-
-	for (i = 0; i < call_count; i++)
-		if (calls[i].cmd == cmd)
-			count++;
-	return count;
+	return cmd < MOCK_NSC_MAX_CMD ? cmd_counts[cmd] : 0;
 }
 
 const mock_nsc_call_t *mock_nsc_last_call(void)
 {
-	return call_count ? &calls[call_count - 1] : NULL;
+	return total_calls ? &last_call : NULL;
 }
 
 void mock_nsc_set_hook(mock_nsc_hook_t newHook) { hook = newHook; }

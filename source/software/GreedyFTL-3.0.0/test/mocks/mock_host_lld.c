@@ -160,12 +160,14 @@ void set_io_cq(unsigned int ioCqIdx, unsigned int valid, unsigned int irqEn, uns
 void set_direct_tx_dma(unsigned int devAddr, unsigned int pcieAddrH, unsigned int pcieAddrL, unsigned int len)
 {
 	RECORD(MOCK_HOST_SET_DIRECT_TX_DMA, devAddr, pcieAddrH, pcieAddrL, len);
+	g_hostDmaStatus.fifoTail.directDmaTx++;
 	g_hostDmaStatus.directDmaTxCnt++;
 }
 
 void set_direct_rx_dma(unsigned int devAddr, unsigned int pcieAddrH, unsigned int pcieAddrL, unsigned int len)
 {
 	RECORD(MOCK_HOST_SET_DIRECT_RX_DMA, devAddr, pcieAddrH, pcieAddrL, len);
+	g_hostDmaStatus.fifoTail.directDmaRx++;
 	g_hostDmaStatus.directDmaRxCnt++;
 }
 
@@ -198,8 +200,18 @@ void set_auto_rx_dma(unsigned int cmdSlotTag, unsigned int cmd4KBOffset, unsigne
 	advance_auto_tail(0);
 }
 
-void check_direct_tx_dma_done() { RECORD(MOCK_HOST_CHECK_DIRECT_TX_DMA_DONE); }
-void check_direct_rx_dma_done() { RECORD(MOCK_HOST_CHECK_DIRECT_RX_DMA_DONE); }
+/* Direct DMAs complete as soon as the firmware waits for them. */
+void check_direct_tx_dma_done()
+{
+	RECORD(MOCK_HOST_CHECK_DIRECT_TX_DMA_DONE);
+	g_hostDmaStatus.fifoHead.directDmaTx = g_hostDmaStatus.fifoTail.directDmaTx;
+}
+
+void check_direct_rx_dma_done()
+{
+	RECORD(MOCK_HOST_CHECK_DIRECT_RX_DMA_DONE);
+	g_hostDmaStatus.fifoHead.directDmaRx = g_hostDmaStatus.fifoTail.directDmaRx;
+}
 void check_auto_tx_dma_done() { RECORD(MOCK_HOST_CHECK_AUTO_TX_DMA_DONE); }
 void check_auto_rx_dma_done() { RECORD(MOCK_HOST_CHECK_AUTO_RX_DMA_DONE); }
 

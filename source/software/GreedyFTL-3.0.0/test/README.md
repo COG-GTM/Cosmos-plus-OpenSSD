@@ -83,11 +83,11 @@ Helpers:
 
 | Header | Use |
 | --- | --- |
-| `fw_test.h` | `fw_test_reset()` (zero DRAM window, reset every mock and `g_nvmeTask`), `fw_test_init_ftl()` (runs real `InitFTL()` against an ideal NAND). |
+| `fw_test.h` | `fw_test_reset()` (zero DRAM window, reset every mock, `g_nvmeTask`, the scripted `inbyte()` and the `FindDieForFreeSliceAllocation()` round-robin cursor), `fw_test_init_ftl()` (runs real `InitFTL()` against an ideal NAND, then clears the `mock_nsc` call log/counters). |
 | `fw_assert.h` | `FW_EXPECT_ASSERT(stmt)` — pass iff `stmt` trips a firmware `ASSERT`/`assert`. `FW_RUN_UNTIL_LOOP_EXIT(stmt)` + `fw_loop_exit()` — escape `while(1)` loops such as `nvme_main()` from a mock hook. |
 | `fw_memory.h` | `fw_ptr(addr)` — host pointer for a firmware DRAM address. |
 | `mock_io.h` | `mock_io_set_reg`, `mock_io_queue_read`, `mock_io_set_read_hook`, access log (`mock_io_log_at`, `mock_io_last_write`, counters). |
-| `mock_nsc.h` | Records every V2F call (`mock_nsc_call_at`, `mock_nsc_count_cmd(V2FCommand_*)`); script busy/ready, status report, ECC error info, completion, read fill byte; per-call hook for fault injection. |
+| `mock_nsc.h` | Records every V2F call (bounded log `mock_nsc_call_at`; unbounded `mock_nsc_count_cmd(V2FCommand_*)`, `mock_nsc_last_call`, `mock_nsc_call_count`; `mock_nsc_clear_calls`); script busy/ready, status report, ECC error info, completion, read fill byte; per-call hook for fault injection. |
 | `mock_host_lld.h` | Records completions, queue setup and DMA calls (`mock_host_count`, `mock_host_last`); `mock_host_push_cmd` feeds `get_nvme_cmd`; `mock_host_set_cc_en`, `mock_host_set_partial_done`; hook fires after each call (use with `fw_loop_exit`). |
 
 To replace a firmware function called from another translation unit, list

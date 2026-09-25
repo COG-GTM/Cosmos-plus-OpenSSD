@@ -11,7 +11,11 @@
 
 #include "nsc_driver.h"
 
+/* Size of the inspectable call log (mock_nsc_call_at). Counters and
+ * mock_nsc_last_call() keep working after the log is full. */
 #define MOCK_NSC_MAX_CALLS 4096
+/* V2FCommand_* values are below this bound. */
+#define MOCK_NSC_MAX_CMD 64
 #define MOCK_NSC_CHANNEL_UNKNOWN 0xFFFFFFFFU
 
 /* Values reported for a successful operation (see nsc_driver.h macros). */
@@ -38,6 +42,8 @@ typedef struct {
 typedef void (*mock_nsc_hook_t)(const mock_nsc_call_t *call);
 
 void mock_nsc_reset(void);
+/* Forget recorded calls and counters but keep the scripted NAND behaviour. */
+void mock_nsc_clear_calls(void);
 
 unsigned int mock_nsc_call_count(void);
 const mock_nsc_call_t *mock_nsc_call_at(unsigned int index);

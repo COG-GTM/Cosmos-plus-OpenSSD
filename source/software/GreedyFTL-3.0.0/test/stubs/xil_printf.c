@@ -37,6 +37,7 @@ void stub_xil_printf_reset(void)
 {
 	printf_count = 0;
 	last_line[0] = '\0';
+	next_inbyte = '\r';
 }
 
 unsigned int stub_xil_printf_count(void) { return printf_count; }
