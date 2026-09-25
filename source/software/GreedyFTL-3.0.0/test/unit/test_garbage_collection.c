@@ -203,15 +203,24 @@ static void test_gc_copies_valid_slices_then_erases_victim(void)
 
 static void test_gc_of_fully_invalid_block_only_erases(void)
 {
-	unsigned int vsa = write_one_page_on_every_die(0);
-	unsigned int blockNo = Vsa2VblockTranslation(vsa);
-	unsigned int lsa = virtualSliceMapPtr->virtualSlice[vsa].logicalSliceAddr;
+	unsigned int firstVsa = write_one_page_on_every_die(0);
+	unsigned int blockNo = Vsa2VblockTranslation(firstVsa);
+	unsigned int totalSlices = SLICES_PER_BLOCK * USER_DIES;
+	unsigned int lsa;
 
-	/* Drop the only live mapping so the block genuinely holds no valid data. */
-	logicalSliceMapPtr->logicalSlice[lsa].virtualSliceAddr = VSA_NONE;
-	block(blockNo)->invalidSliceCnt = SLICES_PER_BLOCK;
-	PutToGcVictimList(TEST_DIE, blockNo, SLICES_PER_BLOCK);
+	/* Fill the block on TEST_DIE (round-robin writes fill every die's block). */
+	for (lsa = USER_DIES; lsa < totalSlices; lsa++)
+		AddrTransWrite(lsa);
+	TEST_ASSERT_EQUAL_UINT(SLICES_PER_BLOCK, block(blockNo)->currentPage);
+	TEST_ASSERT_EQUAL_UINT(0, block(blockNo)->invalidSliceCnt);
+
+	/* Overwrite every LSA so each slice of the block is invalidated naturally. */
+	for (lsa = 0; lsa < totalSlices; lsa++)
+		AddrTransWrite(lsa);
+	TEST_ASSERT_EQUAL_UINT(SLICES_PER_BLOCK, block(blockNo)->invalidSliceCnt);
+	TEST_ASSERT_EQUAL_UINT(blockNo, victims(SLICES_PER_BLOCK)->headBlock);
 	permit_block_pages(blockNo, block(blockNo)->currentPage);
+	mock_nsc_reset();
 
 	GarbageCollection(TEST_DIE);
 	SyncAllLowLevelReqDone();
@@ -221,7 +230,7 @@ static void test_gc_of_fully_invalid_block_only_erases(void)
 	TEST_ASSERT_EQUAL_UINT(1, mock_nsc_count_cmd(V2FCommand_BlockErase));
 	TEST_ASSERT_EQUAL_UINT(1, block(blockNo)->free);
 	TEST_ASSERT_EQUAL_UINT(0, block(blockNo)->invalidSliceCnt);
-	TEST_ASSERT_EQUAL_HEX32(VSA_NONE, logicalSliceMapPtr->logicalSlice[lsa].virtualSliceAddr);
+	TEST_ASSERT_EQUAL_UINT(0, block(blockNo)->currentPage);
 }
 
 int main(void)
