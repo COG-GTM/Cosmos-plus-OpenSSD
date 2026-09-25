@@ -290,11 +290,32 @@ static void test_queued_requests_on_same_way_run_in_order(void)
 	SyncAllLowLevelReqDone();
 
 	TEST_ASSERT_EQUAL_UINT(0, notCompletedNandReqCnt);
-	call = mock_nsc_call_at(0);
-	TEST_ASSERT_NOT_NULL(call);
-	TEST_ASSERT_EQUAL_UINT(V2FCommand_BlockErase, call->cmd);
 	TEST_ASSERT_EQUAL_UINT(1, mock_nsc_count_cmd(V2FCommand_ProgramPage));
 	TEST_ASSERT_EQUAL_UINT(1, mock_nsc_count_cmd(V2FCommand_BlockErase));
+
+	/* every op before the program must belong to the erase (erase itself or
+	 * its status checks); the program is the last non-status command */
+	{
+		unsigned int i, eraseIndex = 0, programIndex = 0;
+		unsigned int seenErase = 0, seenProgram = 0;
+
+		for (i = 0; i < mock_nsc_call_count(); i++) {
+			call = mock_nsc_call_at(i);
+			TEST_ASSERT_NOT_NULL(call);
+			if (call->cmd == V2FCommand_BlockErase) {
+				eraseIndex = i;
+				seenErase = 1;
+			} else if (call->cmd == V2FCommand_ProgramPage) {
+				programIndex = i;
+				seenProgram = 1;
+			} else {
+				TEST_ASSERT_EQUAL_UINT(V2FCommand_StatusCheck, call->cmd);
+			}
+		}
+		TEST_ASSERT_TRUE(seenErase && seenProgram);
+		TEST_ASSERT_EQUAL_UINT(0, eraseIndex);
+		TEST_ASSERT_TRUE(programIndex > eraseIndex);
+	}
 }
 
 /* ------------------------------------------------------------------------ */
