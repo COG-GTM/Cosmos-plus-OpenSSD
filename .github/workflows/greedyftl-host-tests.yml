@@ -27,12 +27,6 @@ jobs:
       - name: Install lcov
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends lcov
 
-      - name: Cache Unity download
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.BUILD_DIR }}/_deps/unity-subbuild/unity-populate-prefix/src
-          key: unity-v2.6.0
-
       - name: Configure
         run: cmake -S "$TEST_DIR" -B "$BUILD_DIR" -DGREEDYFTL_TEST_CHANNELS=2
 
