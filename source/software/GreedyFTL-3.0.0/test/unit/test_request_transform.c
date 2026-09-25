@@ -96,6 +96,8 @@ static unsigned int total_nand_req_count(void)
 	return total;
 }
 
+static void run_sync_release_scenario(unsigned int readPage, unsigned int *readTag, unsigned int *vsaOut);
+
 static void assert_slice_req(unsigned int tag, unsigned int reqCode, unsigned int lsa, unsigned int startIndex,
 		unsigned int blockOffset, unsigned int numOfNvmeBlock)
 {
@@ -576,6 +578,24 @@ static void test_check_row_addr_dep_read_release_decrements_on_pass(void)
 	TEST_ASSERT_EQUAL_UINT(1, dep_entry_for_vsa(vsa)->blockedReadReqCnt);
 }
 
+static void test_check_row_addr_dep_read_select_drains_pending_erase_first(void)
+{
+	unsigned int readTag, vsa;
+
+	run_sync_release_scenario(0, &readTag, &vsa);
+	req(readTag)->prevBlockingReq = REQ_SLOT_TAG_NONE;
+
+	/* Erase completes synchronously; block reset so page 0 is unprogrammed. */
+	TEST_ASSERT_EQUAL_UINT(ROW_ADDR_DEPENDENCY_REPORT_BLOCKED,
+			CheckRowAddrDep(readTag, ROW_ADDR_DEPENDENCY_CHECK_OPT_SELECT));
+
+	TEST_ASSERT_EQUAL_UINT(0, dep_entry_for_vsa(vsa)->blockedEraseReqFlag);
+	TEST_ASSERT_EQUAL_UINT(0, dep_entry_for_vsa(vsa)->permittedProgPage);
+	TEST_ASSERT_EQUAL_UINT(1, dep_entry_for_vsa(vsa)->blockedReadReqCnt);
+	TEST_ASSERT_EQUAL_UINT(1, mock_nsc_count_cmd(V2FCommand_BlockErase));
+	TEST_ASSERT_EQUAL_UINT(1, mock_nsc_count_cmd(V2FCommand_ProgramPage));
+}
+
 static void test_check_row_addr_dep_read_rejects_unknown_option(void)
 {
 	unsigned int tag = new_nand_req(REQ_CODE_READ, 0);
@@ -928,6 +948,40 @@ static void test_select_low_level_buf_blocked_nand_without_check_skips_table(voi
 
 	TEST_ASSERT_EQUAL_UINT(1, blockedByBufDepReqQ.reqCnt);
 	TEST_ASSERT_EQUAL_UINT(0, dep_entry_for_vsa(vsa)->blockedReadReqCnt);
+}
+
+/*
+ * A buffer-blocked read whose block has a pending erase drains the erase
+ * synchronously. If the blocking RxDMA retires during that drain, the read is
+ * dispatched by the dependency-table update and never enters the buf-dep queue.
+ */
+static void test_select_low_level_buf_blocked_read_released_during_erase_sync(void)
+{
+	unsigned int readTag, vsa, dmaTag, ch, way;
+
+	run_sync_release_scenario(0, &readTag, &vsa);
+	ch = ch_of_vsa(vsa);
+	way = way_of_vsa(vsa);
+
+	ReqTransNvmeToSlice(0, 0, FULL_SLICE_NLB, IO_NVM_WRITE);
+	dmaTag = sliceReqQ.headReq;
+	ReqTransSliceToLowLevel();
+	TEST_ASSERT_EQUAL_UINT(1, nvmeDmaReqQ.reqCnt);
+
+	req(readTag)->prevBlockingReq = dmaTag;
+	req(dmaTag)->nextBlockingReq = readTag;
+
+	SelectLowLevelReqQ(readTag);
+
+	TEST_ASSERT_EQUAL_UINT(0, nvmeDmaReqQ.reqCnt);
+	TEST_ASSERT_EQUAL_UINT(REQ_SLOT_TAG_NONE, req(readTag)->prevBlockingReq);
+	TEST_ASSERT_EQUAL_UINT(0, blockedByBufDepReqQ.reqCnt);
+	TEST_ASSERT_EQUAL_UINT(0, dep_entry_for_vsa(vsa)->blockedEraseReqFlag);
+	TEST_ASSERT_EQUAL_UINT(1, mock_nsc_count_cmd(V2FCommand_BlockErase));
+	/* Block was reset by the erase: the page-0 read is row-address blocked. */
+	TEST_ASSERT_EQUAL_UINT(REQ_QUEUE_TYPE_BLOCKED_BY_ROW_ADDR_DEP, req(readTag)->reqQueueType);
+	TEST_ASSERT_EQUAL_UINT(1, blockedByRowAddrDepReqQ[ch][way].reqCnt);
+	TEST_ASSERT_EQUAL_UINT(1, dep_entry_for_vsa(vsa)->blockedReadReqCnt);
 }
 
 /* ------------------------------------------------------------------------ */
@@ -1320,6 +1374,7 @@ int main(void)
 	RUN_TEST(test_check_row_addr_dep_read_select_passes_below_permitted_page);
 	RUN_TEST(test_check_row_addr_dep_read_select_blocks_and_counts);
 	RUN_TEST(test_check_row_addr_dep_read_release_decrements_on_pass);
+	RUN_TEST(test_check_row_addr_dep_read_select_drains_pending_erase_first);
 	RUN_TEST(test_check_row_addr_dep_read_rejects_unknown_option);
 	RUN_TEST(test_check_row_addr_dep_write_passes_only_on_next_page);
 	RUN_TEST(test_check_row_addr_dep_erase_passes_when_block_fully_programmed_and_unread);
@@ -1347,6 +1402,7 @@ int main(void)
 	RUN_TEST(test_select_low_level_buf_blocked_nvme_dma_waits_in_buf_dep_queue);
 	RUN_TEST(test_select_low_level_buf_blocked_nand_read_updates_dependency_table);
 	RUN_TEST(test_select_low_level_buf_blocked_nand_without_check_skips_table);
+	RUN_TEST(test_select_low_level_buf_blocked_read_released_during_erase_sync);
 
 	RUN_TEST(test_release_buf_dep_with_no_successor_clears_entry_tail);
 	RUN_TEST(test_release_buf_dep_keeps_tail_owned_by_another_request);
