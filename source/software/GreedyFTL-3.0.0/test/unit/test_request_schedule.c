@@ -1084,6 +1084,32 @@ static void test_scheduler_runs_read_as_trigger_then_transfer(void)
 	TEST_ASSERT_EQUAL_UINT(DIE_STATE_IDLE, die(CH, WAY)->dieState);
 }
 
+static void test_scheduler_read_returns_data_programmed_at_same_row(void)
+{
+	unsigned char *writeBuf = (unsigned char *)(uintptr_t)RESERVED_DATA_BUFFER_BASE_ADDR;
+	unsigned char *readBuf = (unsigned char *)(uintptr_t)TEMPORARY_DATA_BUFFER_BASE_ADDR;
+	unsigned int tag, i;
+
+	for (i = 0; i < BYTES_PER_DATA_REGION_OF_SLICE; i++)
+		writeBuf[i] = (unsigned char)(i * 7 + 1);
+	memset(readBuf, 0, BYTES_PER_DATA_REGION_OF_SLICE);
+
+	enqueue_default_req(REQ_CODE_WRITE);
+	run_scheduler_until_idle();
+
+	tag = enqueue_default_req(REQ_CODE_READ);
+	reqPoolPtr->reqPool[tag].dataBufInfo.addr = TEMPORARY_DATA_BUFFER_BASE_ADDR;
+	run_scheduler_until_idle();
+	TEST_ASSERT_EQUAL_MEMORY(writeBuf, readBuf, BYTES_PER_DATA_REGION_OF_SLICE);
+
+	/* a different page of the same block was never programmed: reads as erased */
+	memset(readBuf, 0xA5, BYTES_PER_DATA_REGION_OF_SLICE);
+	tag = enqueue_nand_req(CH, WAY, REQ_CODE_READ, TEST_BLOCK, TEST_PAGE + 1);
+	reqPoolPtr->reqPool[tag].dataBufInfo.addr = TEMPORARY_DATA_BUFFER_BASE_ADDR;
+	run_scheduler_until_idle();
+	TEST_ASSERT_EACH_EQUAL_HEX8(0xFF, readBuf, BYTES_PER_DATA_REGION_OF_SLICE);
+}
+
 static void test_scheduler_retries_failed_read_until_retry_limit_then_marks_block_bad(void)
 {
 	unsigned int dieNo = Pcw2VdieTranslation(CH, WAY);
@@ -1249,6 +1275,7 @@ int main(void)
 	RUN_TEST(test_scheduler_completes_pending_write_once_report_passes);
 	RUN_TEST(test_scheduler_keeps_way_off_idle_list_while_queue_has_more_requests);
 	RUN_TEST(test_scheduler_runs_read_as_trigger_then_transfer);
+	RUN_TEST(test_scheduler_read_returns_data_programmed_at_same_row);
 	RUN_TEST(test_scheduler_retries_failed_read_until_retry_limit_then_marks_block_bad);
 	RUN_TEST(test_scheduler_recovers_read_that_succeeds_on_retry);
 	RUN_TEST(test_scheduler_failed_program_marks_block_bad_without_retry);
