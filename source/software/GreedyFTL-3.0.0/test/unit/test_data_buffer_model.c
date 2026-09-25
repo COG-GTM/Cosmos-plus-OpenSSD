@@ -104,6 +104,8 @@ static unsigned int HashChainLength(unsigned int hashEntry)
 
 	while (cur != DATA_BUF_NONE)
 	{
+		TEST_ASSERT_NOT_EQUAL_MESSAGE(LSA_NONE, dataBufMapPtr->dataBuf[cur].logicalSliceAddr,
+								"non-resident entry in a hash chain");
 		TEST_ASSERT_EQUAL_UINT(prev, dataBufMapPtr->dataBuf[cur].hashPrevEntry);
 		TEST_ASSERT_EQUAL_UINT(hashEntry, FindDataBufHashTableEntry(dataBufMapPtr->dataBuf[cur].logicalSliceAddr));
 		prev = cur;
