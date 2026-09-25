@@ -648,6 +648,10 @@ unsigned int AddrTransWrite(unsigned int logicalSliceAddr)
 
 		virtualSliceAddr = FindFreeVirtualSlice();
 
+		// no free slice could be produced (even after garbage collection): reject the write
+		if(virtualSliceAddr == VSA_FAIL)
+			return VSA_FAIL;
+
 		logicalSliceMapPtr->logicalSlice[logicalSliceAddr].virtualSliceAddr = virtualSliceAddr;
 		virtualSliceMapPtr->virtualSlice[virtualSliceAddr].logicalSliceAddr = logicalSliceAddr;
 
@@ -682,7 +686,10 @@ unsigned int FindFreeVirtualSlice()
 				if(currentBlock != BLOCK_FAIL)
 					virtualDieMapPtr->die[dieNo].currentBlock = currentBlock;
 				else
+				{
 					assert(!"[WARNING] There is no available block [WARNING]");
+					return VSA_FAIL;
+				}
 			}
 			else if(virtualBlockMapPtr->block[dieNo][currentBlock].currentPage > USER_PAGES_PER_BLOCK)
 				assert(!"[WARNING] Current page management fail [WARNING]");
