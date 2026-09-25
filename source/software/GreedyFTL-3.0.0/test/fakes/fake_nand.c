@@ -193,7 +193,10 @@ void FakeNandMarkBadBlock(unsigned int ch, unsigned int way, unsigned int phyBlo
 		abort();
 	}
 
+	/* The marker row may already hold data; overwrite it in place rather than
+	   going through the erase-before-program check for ordinary writes. */
 	FakeNandReadRow(ch, way, rowAddr, row);
+	RemovePage(die, rowAddr);
 	row[BAD_BLOCK_MARK_BYTE0] = 0x00;
 	FakeNandProgramRow(ch, way, rowAddr, row);
 

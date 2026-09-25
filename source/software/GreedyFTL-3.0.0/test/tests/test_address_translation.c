@@ -343,6 +343,24 @@ void test_full_init_with_factory_bad_block_scans_remaps_and_persists_table(void)
 	TEST_ASSERT_EQUAL_UINT(remapped, phyBlockMapPtr->phyBlock[die][badBlock].remappedPhyBlock);
 }
 
+void test_block_with_programmed_marker_row_can_still_be_marked_grown_bad(void)
+{
+	unsigned int die = 0, ch = TestChannelOfDie(die), way = TestWayOfDie(die);
+	unsigned int block = 40, markerRow = FakeNandPhyBlockToRow(block, BAD_BLOCK_MARK_PAGE0);
+	unsigned char row[FAKE_NAND_ROW_BYTES];
+
+	memset(row, 0x5A, sizeof(row));
+	TEST_ASSERT_EQUAL_INT(0, FakeNandProgramRow(ch, way, markerRow, row));
+
+	FakeNandMarkBadBlock(ch, way, block);
+
+	TEST_ASSERT_TRUE(FakeNandIsBadBlock(ch, way, block));
+	FakeNandReadRow(ch, way, markerRow, row);
+	TEST_ASSERT_EQUAL_HEX8(0x00, row[BAD_BLOCK_MARK_BYTE0]);
+	TEST_ASSERT_EQUAL_HEX8(0x5A, row[BAD_BLOCK_MARK_BYTE0 + 1]);
+	TEST_ASSERT_NOT_EQUAL(0, FakeNandProgramRow(ch, way, FakeNandPhyBlockToRow(block, 3), row));
+}
+
 int main(void)
 {
 	UNITY_BEGIN();
@@ -368,5 +386,6 @@ int main(void)
 	RUN_TEST(test_remap_bad_block_redirects_to_reserved_block_in_same_lun);
 	RUN_TEST(test_remapped_bad_block_routes_row_address_to_replacement);
 	RUN_TEST(test_full_init_with_factory_bad_block_scans_remaps_and_persists_table);
+	RUN_TEST(test_block_with_programmed_marker_row_can_still_be_marked_grown_bad);
 	return UNITY_END();
 }
