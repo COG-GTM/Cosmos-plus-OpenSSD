@@ -20,6 +20,28 @@
 #define TEST_CH   1
 #define TEST_WAY  5
 
+/* Request pool accounting as InitFTL() left it, captured before the per-test
+ * reset so the boot state itself can be asserted on. */
+static struct {
+	unsigned int freeReqCnt;
+	unsigned int freeHead;
+	unsigned int freeTail;
+	unsigned int notCompletedNandReqCnt;
+	unsigned int blockedReqCnt;
+	unsigned int freeChainLength;
+} bootState;
+
+static unsigned int count_free_chain(void)
+{
+	unsigned int cur = freeReqQ.headReq, walked = 0;
+
+	while (cur != REQ_SLOT_TAG_NONE && walked <= POOL_SIZE) {
+		cur = reqPoolPtr->reqPool[cur].nextReq;
+		walked++;
+	}
+	return walked;
+}
+
 /* Boot the FTL once (populates the data buffer tables the release paths walk),
  * then give each test a pristine request pool and host DMA state. */
 void setUp(void)
@@ -28,6 +50,12 @@ void setUp(void)
 
 	if (!isBooted) {
 		ftl_test_env_init_ftl();
+		bootState.freeReqCnt = freeReqQ.reqCnt;
+		bootState.freeHead = freeReqQ.headReq;
+		bootState.freeTail = freeReqQ.tailReq;
+		bootState.notCompletedNandReqCnt = notCompletedNandReqCnt;
+		bootState.blockedReqCnt = blockedReqCnt;
+		bootState.freeChainLength = count_free_chain();
 		isBooted = 1;
 	}
 	InitReqPool();
@@ -150,10 +178,12 @@ static void test_init_empties_every_other_queue_and_counters(void)
 
 static void test_ftl_boot_leaves_pool_fully_free(void)
 {
-	TEST_ASSERT_EQUAL_UINT(POOL_SIZE, freeReqQ.reqCnt);
-	TEST_ASSERT_EQUAL_UINT(0, notCompletedNandReqCnt);
-	TEST_ASSERT_EQUAL_UINT(0, blockedReqCnt);
-	assert_free_queue_consistent();
+	TEST_ASSERT_EQUAL_UINT(POOL_SIZE, bootState.freeReqCnt);
+	TEST_ASSERT_EQUAL_UINT(POOL_SIZE, bootState.freeChainLength);
+	TEST_ASSERT_NOT_EQUAL(REQ_SLOT_TAG_NONE, bootState.freeHead);
+	TEST_ASSERT_NOT_EQUAL(REQ_SLOT_TAG_NONE, bootState.freeTail);
+	TEST_ASSERT_EQUAL_UINT(0, bootState.notCompletedNandReqCnt);
+	TEST_ASSERT_EQUAL_UINT(0, bootState.blockedReqCnt);
 }
 
 /* ------------------------------------------------------------------------ */
