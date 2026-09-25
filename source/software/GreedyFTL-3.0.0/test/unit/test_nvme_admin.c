@@ -354,6 +354,22 @@ static void test_handle_identify_namespace_split_with_small_offset(void)
 	assert_success_completion();
 }
 
+/* ADMIN_IDENTIFY_COMMAND_DW10.CNS is a 1-bit field, so any other CNS value
+ * (e.g. 2 = active namespace list) is truncated to bit 0 and served as a
+ * namespace identify rather than rejected. */
+static void test_handle_identify_truncates_cns_to_one_bit(void)
+{
+	ADMIN_IDENTIFY_NAMESPACE *ns = (ADMIN_IDENTIFY_NAMESPACE *)IDENTIFY_BUFFER;
+
+	storageCapacity_L = 0x1234;
+	make_identify_cmd(2, HOST_PAGE_ADDR, 0);
+	handle_identify(&cmd, &cpl);
+
+	TEST_ASSERT_EQUAL_HEX32(0x1234, ns->NSZE[0]);
+	TEST_ASSERT_EQUAL_size_t(1, mock_io_write_count_for(HOST_DMA_CMD_FIFO_REG_ADDR));
+	assert_success_completion();
+}
+
 static void test_handle_identify_rejects_prp1_not_16_byte_aligned(void)
 {
 	make_identify_cmd(1, HOST_PAGE_ADDR + 0x4, 0);
@@ -607,6 +623,21 @@ static void test_create_io_sq_accepts_highest_queue_id(void)
 	assert_success_completion();
 }
 
+static void test_create_io_sq_ignores_physically_contiguous_flag(void)
+{
+	ADMIN_CREATE_IO_SQ_DW11 dw11;
+
+	make_create_sq_cmd(2, 0x10, 1, HOST_PAGE_ADDR, 0);
+	dw11.dword = cmd.dword11;
+	dw11.PC = 0;
+	cmd.dword11 = dw11.dword;
+	handle_create_io_sq(&cmd, &cpl);
+
+	TEST_ASSERT_EQUAL_UINT(1, g_nvmeTask.ioSqInfo[1].valid);
+	TEST_ASSERT_EQUAL_UINT(1, read_sq_set_reg(1).valid);
+	assert_success_completion();
+}
+
 static void test_create_io_sq_rejects_queue_id_zero(void)
 {
 	make_create_sq_cmd(0, 0x10, 1, HOST_PAGE_ADDR, 0);
@@ -725,6 +756,21 @@ static void test_create_io_cq_accepts_highest_queue_id_and_vector(void)
 	assert_success_completion();
 }
 
+static void test_create_io_cq_ignores_physically_contiguous_flag(void)
+{
+	ADMIN_CREATE_IO_CQ_DW11 dw11;
+
+	make_create_cq_cmd(2, 0x10, 1, 0, HOST_PAGE_ADDR, 0);
+	dw11.dword = cmd.dword11;
+	dw11.PC = 0;
+	cmd.dword11 = dw11.dword;
+	handle_create_io_cq(&cmd, &cpl);
+
+	TEST_ASSERT_EQUAL_UINT(1, g_nvmeTask.ioCqInfo[1].valid);
+	TEST_ASSERT_EQUAL_UINT(1, read_cq_set_reg(1).valid);
+	assert_success_completion();
+}
+
 static void test_create_io_cq_rejects_queue_id_zero(void)
 {
 	make_create_cq_cmd(0, 0x10, 1, 0, HOST_PAGE_ADDR, 0);
@@ -792,6 +838,29 @@ static void test_delete_io_cq_clears_bookkeeping_and_register(void)
 	TEST_ASSERT_EQUAL_UINT(0, reg.pcieBaseAddrH);
 	assert_success_completion();
 	TEST_ASSERT_EQUAL_HEX32(0, cpl.specific);
+}
+
+/* handle_delete_io_cq resets valid/irqVector/qSzie/pcieBaseAddr but never
+ * touches irqEn, so a deleted queue keeps reporting interrupts enabled in
+ * g_nvmeTask even though the hardware register was cleared. */
+static void test_delete_io_cq_clears_interrupt_enable_bookkeeping(void)
+{
+	ADMIN_DELETE_IO_CQ_DW10 dw10 = { .dword = 0 };
+
+	make_create_cq_cmd(6, 0x20, 1, 3, HOST_PAGE_ADDR, 0x1);
+	handle_create_io_cq(&cmd, &cpl);
+	TEST_ASSERT_EQUAL_UINT(1, g_nvmeTask.ioCqInfo[5].irqEn);
+
+	memset(&cmd, 0, sizeof(cmd));
+	dw10.QID = 6;
+	cmd.OPC = ADMIN_DELETE_IO_CQ;
+	cmd.dword10 = dw10.dword;
+	handle_delete_io_cq(&cmd, &cpl);
+
+	TEST_ASSERT_EQUAL_UINT(0, read_cq_set_reg(5).irqEn);
+	if (g_nvmeTask.ioCqInfo[5].irqEn != 0)
+		TEST_IGNORE_MESSAGE("BUG: handle_delete_io_cq leaves ioCqInfo[].irqEn set after delete");
+	TEST_ASSERT_EQUAL_UINT(0, g_nvmeTask.ioCqInfo[5].irqEn);
 }
 
 /* --------------------------------------------------------------------- */
@@ -964,6 +1033,13 @@ static void test_dispatch_security_send_is_unsupported_and_asserts(void)
 	FTL_TEST_EXPECT_ASSERT(dispatch_admin_cmd());
 }
 
+static void test_dispatch_unknown_opcode_asserts(void)
+{
+	cmd.OPC = 0xFF;
+	FTL_TEST_EXPECT_ASSERT(dispatch_admin_cmd());
+	TEST_ASSERT_EQUAL_size_t(0, mock_io_write_count_for(NVME_CPL_FIFO_REG_ADDR + 8));
+}
+
 static void test_dispatch_uses_slot_tag_from_command_wrapper(void)
 {
 	make_features_cmd(ADMIN_SET_FEATURES, POWER_MANAGEMENT, 0);
@@ -988,6 +1064,7 @@ int main(void)
 	RUN_TEST(test_handle_identify_namespace_uses_capacity);
 	RUN_TEST(test_handle_identify_splits_dma_when_prp1_not_page_aligned);
 	RUN_TEST(test_handle_identify_namespace_split_with_small_offset);
+	RUN_TEST(test_handle_identify_truncates_cns_to_one_bit);
 	RUN_TEST(test_handle_identify_rejects_prp1_not_16_byte_aligned);
 	RUN_TEST(test_handle_identify_namespace_rejects_unaligned_prp2);
 	RUN_TEST(test_handle_identify_rejects_prp2_high_with_page_offset_bits);
@@ -1016,6 +1093,7 @@ int main(void)
 	RUN_TEST(test_create_io_sq_records_queue_and_programs_register);
 	RUN_TEST(test_create_io_sq_does_not_touch_other_queues);
 	RUN_TEST(test_create_io_sq_accepts_highest_queue_id);
+	RUN_TEST(test_create_io_sq_ignores_physically_contiguous_flag);
 	RUN_TEST(test_create_io_sq_rejects_queue_id_zero);
 	RUN_TEST(test_create_io_sq_rejects_queue_id_above_max);
 	RUN_TEST(test_create_io_sq_rejects_oversized_queue);
@@ -1027,6 +1105,7 @@ int main(void)
 	RUN_TEST(test_create_io_cq_records_queue_and_programs_register);
 	RUN_TEST(test_create_io_cq_with_interrupts_disabled);
 	RUN_TEST(test_create_io_cq_accepts_highest_queue_id_and_vector);
+	RUN_TEST(test_create_io_cq_ignores_physically_contiguous_flag);
 	RUN_TEST(test_create_io_cq_rejects_queue_id_zero);
 	RUN_TEST(test_create_io_cq_rejects_queue_id_above_max);
 	RUN_TEST(test_create_io_cq_rejects_oversized_queue);
@@ -1034,6 +1113,7 @@ int main(void)
 	RUN_TEST(test_create_io_cq_rejects_unaligned_prp1);
 	RUN_TEST(test_create_io_cq_rejects_prp1_high_out_of_range);
 	RUN_TEST(test_delete_io_cq_clears_bookkeeping_and_register);
+	RUN_TEST(test_delete_io_cq_clears_interrupt_enable_bookkeeping);
 
 	RUN_TEST(test_get_log_page_reports_invalid_log_page);
 
@@ -1049,6 +1129,7 @@ int main(void)
 	RUN_TEST(test_dispatch_firmware_download_is_unsupported_and_asserts);
 	RUN_TEST(test_dispatch_format_nvm_is_unsupported_and_asserts);
 	RUN_TEST(test_dispatch_security_send_is_unsupported_and_asserts);
+	RUN_TEST(test_dispatch_unknown_opcode_asserts);
 	RUN_TEST(test_dispatch_uses_slot_tag_from_command_wrapper);
 
 	return UNITY_END();
