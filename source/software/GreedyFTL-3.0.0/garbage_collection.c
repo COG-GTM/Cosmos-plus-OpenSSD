@@ -75,6 +75,10 @@ void GarbageCollection(unsigned int dieNo)
 	victimBlockNo = GetFromGcVictimList(dieNo);
 	dieNoForGcCopy = dieNo;
 
+	// no victim available on this die: do not index the block map with an invalid block number
+	if(victimBlockNo == BLOCK_FAIL)
+		return;
+
 	if(virtualBlockMapPtr->block[dieNo][victimBlockNo].invalidSliceCnt != SLICES_PER_BLOCK)
 	{
 		for(pageNo=0 ; pageNo<USER_PAGES_PER_BLOCK ; pageNo++)
@@ -176,6 +180,7 @@ unsigned int GetFromGcVictimList(unsigned int dieNo)
 		}
 	}
 
+	// every victim list of this die is empty: report an invalid block instead of falling through
 	assert(!"[WARNING] There are no free blocks. Abort terminate this ssd. [WARNING]");
 	return BLOCK_FAIL;
 }
