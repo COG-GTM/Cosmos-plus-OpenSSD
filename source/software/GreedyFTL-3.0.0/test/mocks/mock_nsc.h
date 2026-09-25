@@ -65,6 +65,14 @@ void mock_nsc_set_transfer_result(V2FMCRegisters *dev, int way, unsigned int com
 /* Bytes copied into the page buffer on every read transfer for (dev, way); NULL disables. */
 void mock_nsc_set_read_page_source(V2FMCRegisters *dev, int way, const void *page, size_t len);
 
+/* The mock keeps the contents of every programmed page: V2FProgramPageAsync
+ * stores data+spare by (dev, way, row), V2FReadPageTransferAsync returns them
+ * (unless a read-page source override is set), and V2FEraseBlockAsync drops
+ * all pages of the block. Pages never programmed leave the caller's buffer
+ * untouched. These accessors return NULL for a page that holds no data. */
+const void *mock_nsc_page_data(V2FMCRegisters *dev, int way, unsigned int row);
+const void *mock_nsc_page_spare(V2FMCRegisters *dev, int way, unsigned int row);
+
 /* Call log. */
 size_t mock_nsc_call_count(void);
 const mock_nsc_call_t *mock_nsc_call_at(size_t index);
