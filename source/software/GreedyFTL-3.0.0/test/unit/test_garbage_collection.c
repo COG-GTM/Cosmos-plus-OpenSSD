@@ -9,6 +9,9 @@
 #include "request_schedule.h"
 #include "request_format.h"
 #include "request_transform.h"
+#include "mock_nsc.h"
+#include "nsc_driver.h"
+#include <string.h>
 
 void setUp(void) { ftl_test_env_reset(); ftl_test_env_init_ftl(); }
 void tearDown(void) {}
@@ -410,6 +413,55 @@ static void test_gc_copy_requests_use_temp_buffers_and_vsa_addressing(void)
 	TEST_ASSERT_EQUAL_UINT(1, vblock(DIE, block)->free);
 }
 
+static void test_gc_copies_page_contents_from_victim_to_new_block(void)
+{
+	const unsigned int lsaBase = 450;
+	unsigned int block = take_free_block(DIE);
+	unsigned int chNo = Vdie2PchTranslation(DIE), wayNo = Vdie2PwayTranslation(DIE);
+	unsigned int tag, readTag = REQ_SLOT_TAG_NONE, srcRow, dstRow = 0;
+	size_t i, callsBefore;
+	static unsigned char srcData[BYTES_PER_DATA_REGION_OF_NAND_ROW];
+	static unsigned char srcSpare[BYTES_PER_SPARE_REGION_OF_NAND_ROW];
+	const void *dstData, *dstSpare;
+
+	for (i = 0; i < sizeof(srcData); i++)
+		srcData[i] = (unsigned char)(i * 7 + 3);
+	memset(srcSpare, 0x5A, sizeof(srcSpare));
+
+	fill_block(DIE, block, lsaBase, USER_PAGES_PER_BLOCK - 1);
+
+	/* Stall the NAND so the read request is still queued, then seed the
+	 * victim's valid page in the mock at the row the firmware will read. */
+	mock_nsc_set_ready_busy(chCtlReg[chNo], 0);
+	GarbageCollection(DIE);
+	for (tag = nandReqQ[chNo][wayNo].headReq; tag != REQ_SLOT_TAG_NONE; tag = reqPoolPtr->reqPool[tag].nextReq)
+		if (reqPoolPtr->reqPool[tag].reqCode == REQ_CODE_READ)
+			readTag = tag;
+	TEST_ASSERT_NOT_EQUAL_UINT(REQ_SLOT_TAG_NONE, readTag);
+	srcRow = GenerateNandRowAddr(readTag);
+	V2FProgramPageAsync(chCtlReg[chNo], wayNo, srcRow, srcData, srcSpare);
+
+	callsBefore = mock_nsc_call_count();
+	mock_nsc_set_ready_busy(chCtlReg[chNo], 0xffffffffu);
+	SyncAllLowLevelReqDone();
+
+	for (i = callsBefore; i < mock_nsc_call_count(); i++)
+		if (mock_nsc_call_at(i)->op == MOCK_NSC_OP_PROGRAM)
+			dstRow = mock_nsc_call_at(i)->rowAddress;
+	TEST_ASSERT_NOT_EQUAL_UINT(0, dstRow);
+	TEST_ASSERT_NOT_EQUAL_UINT(srcRow, dstRow);
+
+	dstData = mock_nsc_page_data(chCtlReg[chNo], wayNo, dstRow);
+	dstSpare = mock_nsc_page_spare(chCtlReg[chNo], wayNo, dstRow);
+	TEST_ASSERT_NOT_NULL(dstData);
+	TEST_ASSERT_NOT_NULL(dstSpare);
+	TEST_ASSERT_EQUAL_MEMORY(srcData, dstData, sizeof(srcData));
+	TEST_ASSERT_EQUAL_MEMORY(srcSpare, dstSpare, BYTES_PER_SPARE_REGION_OF_PAGE);
+
+	/* Erase dropped the victim's page. */
+	TEST_ASSERT_NULL(mock_nsc_page_data(chCtlReg[chNo], wayNo, srcRow));
+}
+
 static void test_gc_on_current_write_block_switches_to_new_block(void)
 {
 	const unsigned int lsaBase = 500;
@@ -464,6 +516,7 @@ int main(void)
 	RUN_TEST(test_gc_fully_invalid_block_only_erases);
 	RUN_TEST(test_gc_partially_valid_block_copies_valid_slices_then_erases);
 	RUN_TEST(test_gc_copy_requests_use_temp_buffers_and_vsa_addressing);
+	RUN_TEST(test_gc_copies_page_contents_from_victim_to_new_block);
 	RUN_TEST(test_gc_on_current_write_block_switches_to_new_block);
 	RUN_TEST(test_gc_picks_most_invalid_of_several_victims);
 	return UNITY_END();
