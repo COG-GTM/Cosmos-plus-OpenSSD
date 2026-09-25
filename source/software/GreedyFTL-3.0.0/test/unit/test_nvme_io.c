@@ -108,22 +108,34 @@ static void test_read_sub_slice_range_produces_single_partial_request(void)
 
 static void test_read_with_trailing_partial_slice_covers_all_blocks(void)
 {
-	/* BUG: ReqTransNvmeToSlice computes the number of follow-on slices as
-	 * floor((offset + nlb+1) / NVME_BLOCKS_PER_SLICE). Whenever the range
-	 * crosses a slice boundary and ends part-way through the last slice, the
-	 * trailing partial slice is never turned into a request, so the host's
-	 * final blocks are silently not transferred.
-	 * Expected: 2 slice requests (slice 0 full, slice 1 with 1 block).
-	 * Actual:   1 slice request covering only slice 0. */
-	TEST_IGNORE_MESSAGE("BUG: trailing partial slice is dropped by ReqTransNvmeToSlice");
-
+	/* Slice 0 in full, then a single block of slice 1. */
 	build_io_cmd(IO_NVM_READ, 0, NVME_BLOCKS_PER_SLICE);
 
 	handle_nvme_io_cmd(&cmd);
 
 	TEST_ASSERT_EQUAL_UINT(2, sliceReqQ.reqCnt);
+	TEST_ASSERT_EQUAL_UINT(0, slice_req_at(0)->logicalSliceAddr);
+	TEST_ASSERT_EQUAL_UINT(NVME_BLOCKS_PER_SLICE, slice_req_at(0)->nvmeDmaInfo.numOfNvmeBlock);
 	TEST_ASSERT_EQUAL_UINT(1, slice_req_at(1)->logicalSliceAddr);
+	TEST_ASSERT_EQUAL_UINT(NVME_BLOCKS_PER_SLICE, slice_req_at(1)->nvmeDmaInfo.startIndex);
+	TEST_ASSERT_EQUAL_UINT(0, slice_req_at(1)->nvmeDmaInfo.nvmeBlockOffset);
 	TEST_ASSERT_EQUAL_UINT(1, slice_req_at(1)->nvmeDmaInfo.numOfNvmeBlock);
+}
+
+static void test_read_spanning_three_slices_with_partial_ends(void)
+{
+	/* Last block of slice 1, all of slice 2, first two blocks of slice 3. */
+	build_io_cmd(IO_NVM_READ, NVME_BLOCKS_PER_SLICE * 2 - 1, NVME_BLOCKS_PER_SLICE + 2);
+
+	handle_nvme_io_cmd(&cmd);
+
+	TEST_ASSERT_EQUAL_UINT(3, sliceReqQ.reqCnt);
+	TEST_ASSERT_EQUAL_UINT(1, slice_req_at(0)->nvmeDmaInfo.numOfNvmeBlock);
+	TEST_ASSERT_EQUAL_UINT(2, slice_req_at(1)->logicalSliceAddr);
+	TEST_ASSERT_EQUAL_UINT(NVME_BLOCKS_PER_SLICE, slice_req_at(1)->nvmeDmaInfo.numOfNvmeBlock);
+	TEST_ASSERT_EQUAL_UINT(3, slice_req_at(2)->logicalSliceAddr);
+	TEST_ASSERT_EQUAL_UINT(NVME_BLOCKS_PER_SLICE + 1, slice_req_at(2)->nvmeDmaInfo.startIndex);
+	TEST_ASSERT_EQUAL_UINT(2, slice_req_at(2)->nvmeDmaInfo.numOfNvmeBlock);
 }
 
 static void test_read_of_highest_lba_is_accepted(void)
@@ -376,6 +388,7 @@ int main(void)
 	RUN_TEST(test_read_unaligned_lba_splits_at_slice_boundary);
 	RUN_TEST(test_read_sub_slice_range_produces_single_partial_request);
 	RUN_TEST(test_read_with_trailing_partial_slice_covers_all_blocks);
+	RUN_TEST(test_read_spanning_three_slices_with_partial_ends);
 	RUN_TEST(test_read_of_highest_lba_is_accepted);
 	RUN_TEST(test_read_does_not_post_completion);
 	RUN_TEST(test_write_single_slice_decodes_lba_and_tag);

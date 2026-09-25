@@ -73,12 +73,17 @@ static void escape_when_firmware_prints(const char *message)
 }
 
 /* Books a grown-bad update on die 0 once InitFTL() has finished (it clears
- * the flag during boot), then escapes on the shutdown banner. */
+ * the flag during boot), records the NAND program count at that point so
+ * boot-time table writes can be discounted, then escapes on the shutdown
+ * banner. */
 static void book_grown_bad_then_escape_on_shutdown(const char *fmt, void *ctx)
 {
-	(void)ctx;
+	size_t *programsAfterBoot = ctx;
 	if (strcmp(fmt, "[ ftl configuration complete. ]\r\n") == 0)
+	{
 		bbtInfoMapPtr->bbtInfo[0].grownBadUpdate = BBT_INFO_GROWN_BAD_UPDATE_BOOKED;
+		*programsAfterBoot = mock_nsc_count_op(MOCK_NSC_OP_PROGRAM);
+	}
 	else if (strcmp(fmt, "\r\nNVMe shutdown!!!\r\n") == 0)
 		ftl_test_env_escape();
 }
@@ -343,11 +348,12 @@ static void test_shutdown_tears_down_queues_and_reports_shutdown_complete(void)
 {
 	NVME_STATUS_REG status;
 	NVME_ADMIN_QUEUE_SET_REG adminReg;
+	size_t programsAfterBoot = 0;
 
 	g_nvmeTask.status = NVME_TASK_SHUTDOWN;
 	g_nvmeTask.cacheEn = 1;
 	set_status_reg(1, 1);
-	ftl_test_set_printf_hook(book_grown_bad_then_escape_on_shutdown, NULL);
+	ftl_test_set_printf_hook(book_grown_bad_then_escape_on_shutdown, &programsAfterBoot);
 
 	FTL_TEST_RUN_UNTIL_ESCAPE(nvme_main());
 
@@ -366,8 +372,9 @@ static void test_shutdown_tears_down_queues_and_reports_shutdown_complete(void)
 	TEST_ASSERT_EQUAL_UINT(0, adminReg.cqValid);
 	TEST_ASSERT_EQUAL_UINT(0, adminReg.cqIrqEn);
 
-	/* Booked grown-bad update is flushed to NAND during shutdown. */
-	TEST_ASSERT_GREATER_THAN_size_t(0, mock_nsc_count_op(MOCK_NSC_OP_PROGRAM));
+	/* Booked grown-bad update is flushed to NAND during shutdown, on top of
+	 * whatever the boot-time bad block table save programmed. */
+	TEST_ASSERT_GREATER_THAN_size_t(programsAfterBoot, mock_nsc_count_op(MOCK_NSC_OP_PROGRAM));
 }
 
 /* --- NVME_TASK_WAIT_RESET ------------------------------------------------- */
@@ -447,14 +454,16 @@ static void test_reset_marks_every_io_queue_invalid(void)
 
 	for (q = 0; q < IO_QUEUE_COUNT; q++)
 	{
-		NVME_IO_SQ_SET_REG sq; memset(&sq, 0, sizeof(sq));
-		NVME_IO_CQ_SET_REG cq; memset(&cq, 0, sizeof(cq));
-		sq.dword[0] = mock_io_last_write(NVME_IO_SQ_SET_REG_ADDR + q * 8, &found);
+		NVME_IO_SQ_SET_REG sq; memset(&sq, 0xFF, sizeof(sq));
+		NVME_IO_CQ_SET_REG cq; memset(&cq, 0xFF, sizeof(cq));
+		/* valid lives in the second dword of each 8-byte queue register */
+		sq.dword[1] = mock_io_last_write(NVME_IO_SQ_SET_REG_ADDR + q * 8 + 4, &found);
 		TEST_ASSERT_TRUE(found);
 		TEST_ASSERT_EQUAL_UINT(0, sq.valid);
-		cq.dword[0] = mock_io_last_write(NVME_IO_CQ_SET_REG_ADDR + q * 8, &found);
+		cq.dword[1] = mock_io_last_write(NVME_IO_CQ_SET_REG_ADDR + q * 8 + 4, &found);
 		TEST_ASSERT_TRUE(found);
 		TEST_ASSERT_EQUAL_UINT(0, cq.valid);
+		TEST_ASSERT_EQUAL_UINT(0, cq.irqEn);
 	}
 }
 
