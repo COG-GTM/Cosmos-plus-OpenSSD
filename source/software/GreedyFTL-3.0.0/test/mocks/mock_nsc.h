@@ -68,8 +68,10 @@ void mock_nsc_set_read_page_source(V2FMCRegisters *dev, int way, const void *pag
 /* The mock keeps the contents of every programmed page: V2FProgramPageAsync
  * stores data+spare by (dev, way, row), V2FReadPageTransferAsync returns them
  * (unless a read-page source override is set), and V2FEraseBlockAsync drops
- * all pages of the block. Pages never programmed leave the caller's buffer
- * untouched. These accessors return NULL for a page that holds no data. */
+ * all pages of the block. Pages never programmed (or erased) read back as
+ * 0xFF, like real NAND; raw reads return data followed by spare at
+ * BYTES_PER_DATA_REGION_OF_NAND_ROW. Read-source overrides are clamped to the
+ * destination size. These accessors return NULL for a page holding no data. */
 const void *mock_nsc_page_data(V2FMCRegisters *dev, int way, unsigned int row);
 const void *mock_nsc_page_spare(V2FMCRegisters *dev, int way, unsigned int row);
 
