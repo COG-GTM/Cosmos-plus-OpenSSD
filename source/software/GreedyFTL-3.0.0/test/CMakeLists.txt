@@ -117,8 +117,10 @@ if(GREEDYFTL_COVERAGE)
 		execute_process(COMMAND ${LCOV_EXECUTABLE} --version OUTPUT_VARIABLE LCOV_VERSION_OUTPUT ERROR_QUIET)
 		if(LCOV_VERSION_OUTPUT MATCHES "version 2")
 			set(LCOV_IGNORE --ignore-errors mismatch,negative,unused,inconsistent,gcov,empty)
+			set(GENHTML_IGNORE --ignore-errors mismatch,negative,unused,inconsistent,empty)
 		else()
 			set(LCOV_IGNORE)
+			set(GENHTML_IGNORE)
 		endif()
 		string(JOIN " " LCOV_IGNORE_STR ${LCOV_IGNORE})
 
@@ -132,10 +134,9 @@ if(GREEDYFTL_COVERAGE)
 				"${FW_DIR}/*.c" "${FW_DIR}/nvme/*.c" --output-file ${COVERAGE_INFO}.fw
 			COMMAND ${LCOV_EXECUTABLE} ${LCOV_IGNORE} --remove ${COVERAGE_INFO}.fw
 				"${TEST_DIR}/*" --output-file ${COVERAGE_INFO}
-			COMMAND ${GENHTML_EXECUTABLE} ${LCOV_IGNORE} --output-directory ${COVERAGE_HTML}
+			COMMAND ${GENHTML_EXECUTABLE} ${GENHTML_IGNORE} --output-directory ${COVERAGE_HTML}
 				--title "GreedyFTL-3.0.0 host tests" --legend ${COVERAGE_INFO}
-			COMMAND sh -c "${LCOV_EXECUTABLE} ${LCOV_IGNORE_STR} --list ${COVERAGE_INFO} | tee ${COVERAGE_SUMMARY}"
-			COMMAND sh -c "${LCOV_EXECUTABLE} ${LCOV_IGNORE_STR} --summary ${COVERAGE_INFO} 2>&1 | tee -a ${COVERAGE_SUMMARY}"
+			COMMAND sh -e -c "${LCOV_EXECUTABLE} ${LCOV_IGNORE_STR} --list ${COVERAGE_INFO} > ${COVERAGE_SUMMARY} && ${LCOV_EXECUTABLE} ${LCOV_IGNORE_STR} --summary ${COVERAGE_INFO} >> ${COVERAGE_SUMMARY} 2>&1 && cat ${COVERAGE_SUMMARY}"
 			WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
 			COMMENT "Running tests and generating lcov report in ${COVERAGE_HTML}"
 			VERBATIM)

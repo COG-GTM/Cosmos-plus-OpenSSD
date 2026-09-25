@@ -60,7 +60,12 @@ void fake_regs_reset(void)
 unsigned int fake_reg_read32(unsigned int addr)
 {
 	REG_SLOT *slot = lookup(addr, 0);
-	return slot ? slot->value : 0;
+	unsigned int value = slot ? slot->value : 0;
+
+	/* The command FIFO register pops one entry per read. */
+	if (addr == NVME_CMD_FIFO_REG_ADDR && slot)
+		slot->value = 0;
+	return value;
 }
 
 void fake_reg_poke(unsigned int addr, unsigned int value)

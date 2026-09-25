@@ -30,6 +30,33 @@ static void assertSlice(unsigned int tag, unsigned int lsa, unsigned int offset,
 	TEST_ASSERT_EQUAL_UINT(startIndex, reqPoolPtr->reqPool[tag].nvmeDmaInfo.startIndex);
 }
 
+/* ---- Command FIFO ---------------------------------------------------------- */
+
+static void test_command_fifo_pops_one_command_per_poll(void)
+{
+	unsigned int cmdDword[16] = {0};
+	unsigned short qID, cmdSlotTag;
+	unsigned int cmdSeqNum, out[16];
+
+	cmdDword[0] = IO_NVM_FLUSH;
+	fake_nvme_push_command(1, 7, 3, cmdDword);
+
+	TEST_ASSERT_EQUAL_UINT(1, get_nvme_cmd(&qID, &cmdSlotTag, &cmdSeqNum, out));
+	TEST_ASSERT_EQUAL_UINT(1, qID);
+	TEST_ASSERT_EQUAL_UINT(7, cmdSlotTag);
+	TEST_ASSERT_EQUAL_UINT(3, cmdSeqNum);
+	TEST_ASSERT_EQUAL_UINT(IO_NVM_FLUSH, out[0]);
+
+	TEST_ASSERT_EQUAL_UINT(0, get_nvme_cmd(&qID, &cmdSlotTag, &cmdSeqNum, out));
+
+	cmdDword[0] = IO_NVM_READ;
+	fake_nvme_push_command(2, 8, 4, cmdDword);
+	TEST_ASSERT_EQUAL_UINT(1, get_nvme_cmd(&qID, &cmdSlotTag, &cmdSeqNum, out));
+	TEST_ASSERT_EQUAL_UINT(8, cmdSlotTag);
+	TEST_ASSERT_EQUAL_UINT(IO_NVM_READ, out[0]);
+	TEST_ASSERT_EQUAL_UINT(0, get_nvme_cmd(&qID, &cmdSlotTag, &cmdSeqNum, out));
+}
+
 /* ---- NVMe LBA range -> slice requests --------------------------------------- */
 
 static void test_single_block_read_becomes_one_partial_slice(void)
@@ -274,6 +301,7 @@ static void test_create_io_queues_program_queue_registers(void)
 int main(void)
 {
 	UNITY_BEGIN();
+	RUN_TEST(test_command_fifo_pops_one_command_per_poll);
 	RUN_TEST(test_single_block_read_becomes_one_partial_slice);
 	RUN_TEST(test_aligned_full_slice_write_is_one_request);
 	RUN_TEST(test_unaligned_range_splits_into_head_body_tail);
