@@ -219,6 +219,7 @@ unsigned int check_auto_tx_dma_partial_done(unsigned int tailIndex, unsigned int
 {
 	(void)tailIndex;
 	(void)tailAssistIndex;
+	poll(MOCK_HOST_CHECK_AUTO_TX_DMA_PARTIAL_DONE);
 	return partial_done;
 }
 
@@ -226,5 +227,6 @@ unsigned int check_auto_rx_dma_partial_done(unsigned int tailIndex, unsigned int
 {
 	(void)tailIndex;
 	(void)tailAssistIndex;
+	poll(MOCK_HOST_CHECK_AUTO_RX_DMA_PARTIAL_DONE);
 	return partial_done;
 }
