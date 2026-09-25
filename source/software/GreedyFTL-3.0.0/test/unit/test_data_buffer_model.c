@@ -12,6 +12,7 @@ extern P_DATA_BUF_HASH_TABLE dataBufHashTablePtr;
 #define LAST_BUF (BUF_COUNT - 1)
 #define MODEL_OPS 20000
 #define MODEL_LSA_SPACE (4 * BUF_COUNT)
+#define MODEL_CHECK_INTERVAL 997
 
 /* Reference model: modelOrder[0] is the LRU head, modelOrder[BUF_COUNT-1] the tail. */
 static unsigned int modelOrder[BUF_COUNT];
@@ -170,7 +171,7 @@ static void RunModelSequence(unsigned int seed)
 			TEST_ASSERT_EQUAL_HEX32(DATA_BUF_FAIL, Lookup(reqSlotTag, lsa));
 		}
 
-		if ((op % 997) == 0)
+		if ((op % MODEL_CHECK_INTERVAL) == 0)
 		{
 			AssertLruMatchesModel();
 			AssertHashMatchesModel();
