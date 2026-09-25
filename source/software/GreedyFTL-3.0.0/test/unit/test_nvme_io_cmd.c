@@ -335,8 +335,11 @@ static void test_read_range_crossing_end_of_capacity_is_rejected(void)
 static void test_read_nlb_above_max_is_rejected(void)
 {
 	TEST_IGNORE_MESSAGE("BUG: the nlb < MAX_NUM_OF_NLB check is commented out, so a read "
-			"larger than MDTS is accepted");
-	/* Expected: nlb >= MAX_NUM_OF_NLB (MDTS) trips an assert.
+			"larger than the firmware's 512 KiB transfer limit is accepted");
+	/* Expected: nlb >= MAX_NUM_OF_NLB (512 KiB / 4 KiB blocks, the limit the
+	 * commented-out ASSERT intended) trips an assert. Note the advertised
+	 * Identify MDTS (0x8 => 2^8 * 4 KiB = 1 MiB) is looser than this constant;
+	 * neither bound is enforced.
 	 * Actual: the oversized request is split into slice requests. */
 	NVME_COMMAND cmd = make_io_cmd(IO_NVM_READ, 0);
 	set_lba_range(&cmd, 0, 0, MAX_NUM_OF_NLB);

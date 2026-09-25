@@ -24,17 +24,34 @@ extern volatile NVME_CONTEXT g_nvmeTask;
  * module. */
 static unsigned int admin_cmd_calls;
 static NVME_COMMAND last_admin_cmd;
+/* Number of IO completions already posted when the admin handler ran. */
+static unsigned int cpls_before_admin_cmd;
 
 void __wrap_handle_nvme_admin_cmd(NVME_COMMAND *nvmeCmd)
 {
 	admin_cmd_calls++;
 	last_admin_cmd = *nvmeCmd;
+	cpls_before_admin_cmd = mock_host_count(MOCK_HOST_SET_AUTO_NVME_CPL);
+}
+
+/* NAND reads issued by InitFTL() before the first host command is fetched. */
+static unsigned int nand_reads_before_first_cmd;
+
+static void record_startup_reads_then_exit_when_no_more_cmds(mock_host_call_kind_t kind)
+{
+	if (kind == MOCK_HOST_GET_NVME_CMD && mock_host_count(kind) == 1)
+		nand_reads_before_first_cmd = mock_nsc_count_cmd(V2FCommand_ReadPageTrigger);
+	if (kind == MOCK_HOST_GET_NVME_CMD && mock_host_pending_cmds() == 0 &&
+			mock_host_count(kind) >= 2)
+		fw_loop_exit();
 }
 
 void setUp(void)
 {
 	fw_test_reset();
 	admin_cmd_calls = 0;
+	cpls_before_admin_cmd = 0;
+	nand_reads_before_first_cmd = 0;
 	memset(&last_admin_cmd, 0, sizeof(last_admin_cmd));
 }
 
@@ -223,20 +240,23 @@ static void test_running_dispatches_io_queue_flush_to_io_handler(void)
 	TEST_ASSERT_EQUAL_UINT(4, mock_host_last(MOCK_HOST_SET_AUTO_NVME_CPL)->args[0]);
 }
 
-static void test_running_io_read_is_translated_and_issued_to_nand(void)
+static void test_running_io_read_of_unmapped_lba_is_served_without_nand_read(void)
 {
 	mock_host_nvme_cmd_t cmd = make_cmd(1, 2, IO_NVM_READ);
 
 	g_nvmeTask.status = NVME_TASK_RUNNING;
 	mock_host_push_cmd(&cmd);
-	mock_host_set_hook(exit_when_no_more_cmds);
+	mock_host_set_hook(record_startup_reads_then_exit_when_no_more_cmds);
 
 	FW_RUN_UNTIL_LOOP_EXIT(nvme_main());
 
 	/* ReqTransSliceToLowLevel() ran: the slice queue is drained ... */
 	TEST_ASSERT_EQUAL_UINT(0, sliceReqQ.reqCnt);
-	/* ... and the low-level scheduler pushed a read to the NAND controller. */
-	TEST_ASSERT_GREATER_THAN_UINT(0, mock_nsc_count_cmd(V2FCommand_ReadPageTrigger));
+	/* ... the LBA was never written, so AddrTransRead() yields VSA_FAIL and no
+	 * NAND page read is issued beyond what InitFTL() read during start-up. */
+	TEST_ASSERT_EQUAL_UINT(nand_reads_before_first_cmd,
+			mock_nsc_count_cmd(V2FCommand_ReadPageTrigger));
+	TEST_ASSERT_EQUAL_UINT(0, mock_host_count(MOCK_HOST_SET_AUTO_RX_DMA));
 }
 
 static void test_running_io_write_streams_host_data_via_dma(void)
@@ -270,6 +290,9 @@ static void test_running_serves_commands_in_arrival_order(void)
 	FW_RUN_UNTIL_LOOP_EXIT(nvme_main());
 
 	TEST_ASSERT_EQUAL_UINT(1, admin_cmd_calls);
+	TEST_ASSERT_EQUAL_UINT(1, last_admin_cmd.cmdSlotTag);
+	/* flushA completed before the admin command was dispatched, flushB after. */
+	TEST_ASSERT_EQUAL_UINT(1, cpls_before_admin_cmd);
 	TEST_ASSERT_EQUAL_UINT(2, mock_host_count(MOCK_HOST_SET_AUTO_NVME_CPL));
 	TEST_ASSERT_EQUAL_UINT(2, mock_host_call_at(0)->args[0]);
 	TEST_ASSERT_EQUAL_UINT(3, mock_host_last(MOCK_HOST_SET_AUTO_NVME_CPL)->args[0]);
@@ -412,7 +435,7 @@ int main(void)
 	RUN_TEST(test_running_polls_for_commands_when_queue_empty);
 	RUN_TEST(test_running_dispatches_admin_queue_commands_to_admin_handler);
 	RUN_TEST(test_running_dispatches_io_queue_flush_to_io_handler);
-	RUN_TEST(test_running_io_read_is_translated_and_issued_to_nand);
+	RUN_TEST(test_running_io_read_of_unmapped_lba_is_served_without_nand_read);
 	RUN_TEST(test_running_io_write_streams_host_data_via_dma);
 	RUN_TEST(test_running_serves_commands_in_arrival_order);
 
