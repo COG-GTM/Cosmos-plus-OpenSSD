@@ -519,13 +519,17 @@ static void test_fb_list_round_trips_a_block(void)
 static void test_erase_block_recycles_block_and_clears_slice_mappings(void)
 {
 	/* a block with no outstanding program requests, so the erase is not held
-	 * back by the row-address dependency check; mappings are set by hand */
+	 * back by the row-address dependency check. The slice is in the state GC
+	 * leaves an invalid slice in: stale reverse mapping, forward map already
+	 * pointing at the slice's newer copy elsewhere */
 	unsigned int die = 2, block = GetFromFbList(die, GET_FREE_BLOCK_NORMAL);
 	unsigned int lsa = 8, vsa = Vorg2VsaTranslation(die, block, 3);
+	unsigned int newerVsa = Vorg2VsaTranslation(die, virtualDieMapPtr->die[die].currentBlock, 0);
 	unsigned int cnt = virtualDieMapPtr->die[die].freeBlockCnt;
 	size_t erasesBefore = mock_nsc_count_op(MOCK_NSC_OP_ERASE);
 
-	logicalSliceMapPtr->logicalSlice[lsa].virtualSliceAddr = vsa;
+	logicalSliceMapPtr->logicalSlice[lsa].virtualSliceAddr = newerVsa;
+	virtualSliceMapPtr->virtualSlice[newerVsa].logicalSliceAddr = lsa;
 	virtualSliceMapPtr->virtualSlice[vsa].logicalSliceAddr = lsa;
 	virtualBlockMapPtr->block[die][block].invalidSliceCnt = 4;
 
@@ -539,9 +543,10 @@ static void test_erase_block_recycles_block_and_clears_slice_mappings(void)
 	TEST_ASSERT_EQUAL_UINT(cnt + 1, virtualDieMapPtr->die[die].freeBlockCnt);
 	TEST_ASSERT_EQUAL_UINT(block, virtualDieMapPtr->die[die].tailFreeBlock);
 	TEST_ASSERT_EQUAL_HEX32(LSA_NONE, virtualSliceMapPtr->virtualSlice[vsa].logicalSliceAddr);
-	/* EraseBlock only clears the reverse map; GC must have migrated (or
-	 * invalidated) every valid slice beforehand, so the forward map is left as is */
-	TEST_ASSERT_EQUAL_UINT(vsa, logicalSliceMapPtr->logicalSlice[lsa].virtualSliceAddr);
+	/* the erase must not disturb the live mapping of the same logical slice */
+	TEST_ASSERT_EQUAL_UINT(newerVsa, logicalSliceMapPtr->logicalSlice[lsa].virtualSliceAddr);
+	TEST_ASSERT_EQUAL_UINT(lsa, virtualSliceMapPtr->virtualSlice[newerVsa].logicalSliceAddr);
+	TEST_ASSERT_EQUAL_UINT(newerVsa, AddrTransRead(lsa));
 	TEST_ASSERT_EQUAL_size_t(erasesBefore + 1, mock_nsc_count_op(MOCK_NSC_OP_ERASE));
 }
 
