@@ -1,10 +1,15 @@
 #include "mock_nsc.h"
 #include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
 #include "ftl_config.h"
 
-#define MOCK_NSC_LOG_SIZE 8192
+#define MOCK_NSC_LOG_INITIAL 8192
 #define MOCK_NSC_MAX_DEVS 8
 #define MOCK_NSC_MAX_WAYS 8
+#define MOCK_NSC_PAGE_DATA_BYTES   BYTES_PER_DATA_REGION_OF_PAGE
+#define MOCK_NSC_PAGE_SPARE_BYTES  BYTES_PER_SPARE_REGION_OF_PAGE
+#define MOCK_NSC_PAGES_PER_BLOCK   PAGES_PER_MLC_BLOCK
 
 typedef struct
 {
@@ -17,12 +22,98 @@ typedef struct
 	unsigned int errInfo1[MOCK_NSC_MAX_WAYS];
 	const void *readSrc[MOCK_NSC_MAX_WAYS];
 	size_t readSrcLen[MOCK_NSC_MAX_WAYS];
+	unsigned int lastTriggerRow[MOCK_NSC_MAX_WAYS];
 	int used;
 } dev_state_t;
 
 static dev_state_t devs[MOCK_NSC_MAX_DEVS];
-static mock_nsc_call_t log_[MOCK_NSC_LOG_SIZE];
+
+/* Contents of every programmed page, keyed by (dev, way, row). Pages that
+ * were never programmed (or were erased) leave the read buffer untouched, so
+ * a freshly reset mock still looks like the all-zero NAND the boot path
+ * expects. */
+typedef struct page_t
+{
+	V2FMCRegisters *dev;
+	int way;
+	unsigned int row;
+	unsigned char data[MOCK_NSC_PAGE_DATA_BYTES];
+	unsigned char spare[MOCK_NSC_PAGE_SPARE_BYTES];
+	struct page_t *next;
+} page_t;
+
+#define MOCK_NSC_PAGE_BUCKETS 4096
+static page_t *pages[MOCK_NSC_PAGE_BUCKETS];
+
+static size_t page_bucket(V2FMCRegisters *dev, int way, unsigned int row)
+{
+	uintptr_t h = (uintptr_t)dev ^ ((uintptr_t)way * 0x9E3779B9u) ^ ((uintptr_t)row * 0x85EBCA6Bu);
+	return (h >> 4) % MOCK_NSC_PAGE_BUCKETS;
+}
+
+static page_t *page_find(V2FMCRegisters *dev, int way, unsigned int row)
+{
+	page_t *p = pages[page_bucket(dev, way, row)];
+	for (; p; p = p->next)
+		if (p->dev == dev && p->way == way && p->row == row)
+			return p;
+	return NULL;
+}
+
+static page_t *page_create(V2FMCRegisters *dev, int way, unsigned int row)
+{
+	page_t *p = page_find(dev, way, row);
+	size_t b;
+	if (p)
+		return p;
+	p = calloc(1, sizeof(*p));
+	if (!p)
+	{
+		fprintf(stderr, "mock_nsc: out of memory storing page\n");
+		abort();
+	}
+	p->dev = dev;
+	p->way = way;
+	p->row = row;
+	b = page_bucket(dev, way, row);
+	p->next = pages[b];
+	pages[b] = p;
+	return p;
+}
+
+static void page_drop(V2FMCRegisters *dev, int way, unsigned int row)
+{
+	page_t **pp = &pages[page_bucket(dev, way, row)];
+	while (*pp)
+	{
+		page_t *p = *pp;
+		if (p->dev == dev && p->way == way && p->row == row)
+		{
+			*pp = p->next;
+			free(p);
+			return;
+		}
+		pp = &p->next;
+	}
+}
+
+static void pages_free_all(void)
+{
+	size_t b;
+	for (b = 0; b < MOCK_NSC_PAGE_BUCKETS; b++)
+	{
+		while (pages[b])
+		{
+			page_t *p = pages[b];
+			pages[b] = p->next;
+			free(p);
+		}
+	}
+}
+static mock_nsc_call_t *log_;
 static size_t log_count;
+static size_t log_cap;
+static size_t op_count[MOCK_NSC_OP_IS_BUSY + 1];
 
 static void init_dev(dev_state_t *d, V2FMCRegisters *dev)
 {
@@ -57,22 +148,46 @@ static dev_state_t *state(V2FMCRegisters *dev)
 
 static void record(mock_nsc_op_t op, V2FMCRegisters *dev, int way, unsigned int row, void *data, void *spare)
 {
-	if (log_count < MOCK_NSC_LOG_SIZE)
+	if (log_count == log_cap)
 	{
-		log_[log_count].op = op;
-		log_[log_count].dev = dev;
-		log_[log_count].way = way;
-		log_[log_count].rowAddress = row;
-		log_[log_count].dataBuf = data;
-		log_[log_count].spareBuf = spare;
+		size_t cap = log_cap ? log_cap * 2 : MOCK_NSC_LOG_INITIAL;
+		mock_nsc_call_t *grown = realloc(log_, cap * sizeof(*grown));
+		if (!grown)
+		{
+			fprintf(stderr, "mock_nsc: out of memory growing call log\n");
+			abort();
+		}
+		log_ = grown;
+		log_cap = cap;
 	}
+	log_[log_count].op = op;
+	log_[log_count].dev = dev;
+	log_[log_count].way = way;
+	log_[log_count].rowAddress = row;
+	log_[log_count].dataBuf = data;
+	log_[log_count].spareBuf = spare;
 	log_count++;
+	op_count[op]++;
 }
 
 void mock_nsc_reset(void)
 {
 	memset(devs, 0, sizeof(devs));
 	log_count = 0;
+	memset(op_count, 0, sizeof(op_count));
+	pages_free_all();
+}
+
+const void *mock_nsc_page_data(V2FMCRegisters *dev, int way, unsigned int row)
+{
+	page_t *p = page_find(dev, way, row);
+	return p ? p->data : NULL;
+}
+
+const void *mock_nsc_page_spare(V2FMCRegisters *dev, int way, unsigned int row)
+{
+	page_t *p = page_find(dev, way, row);
+	return p ? p->spare : NULL;
 }
 
 void mock_nsc_set_controller_busy(V2FMCRegisters *dev, unsigned int busy) { state(dev)->busy = busy; }
@@ -93,14 +208,10 @@ void mock_nsc_set_read_page_source(V2FMCRegisters *dev, int way, const void *pag
 }
 
 size_t mock_nsc_call_count(void) { return log_count; }
-const mock_nsc_call_t *mock_nsc_call_at(size_t i) { return (i < log_count && i < MOCK_NSC_LOG_SIZE) ? &log_[i] : NULL; }
+const mock_nsc_call_t *mock_nsc_call_at(size_t i) { return i < log_count ? &log_[i] : NULL; }
 size_t mock_nsc_count_op(mock_nsc_op_t op)
 {
-	size_t i, n = 0, limit = log_count < MOCK_NSC_LOG_SIZE ? log_count : MOCK_NSC_LOG_SIZE;
-	for (i = 0; i < limit; i++)
-		if (log_[i].op == op)
-			n++;
-	return n;
+	return (size_t)op <= MOCK_NSC_OP_IS_BUSY ? op_count[op] : 0;
 }
 
 /* ---- nsc_driver.h implementation ---- */
@@ -134,15 +245,24 @@ void V2FGetFeaturesSync(V2FMCRegisters *dev, int way, unsigned int *f01, unsigne
 void V2FReadPageTriggerAsync(V2FMCRegisters *dev, int way, unsigned int rowAddress)
 {
 	record(MOCK_NSC_OP_READ_TRIGGER, dev, way, rowAddress, NULL, NULL);
+	state(dev)->lastTriggerRow[way & 7] = rowAddress;
 }
 
 void V2FReadPageTransferAsync(V2FMCRegisters *dev, int way, void *pageDataBuffer, void *spareDataBuffer,
                               unsigned int *errorInformation, unsigned int *completion, unsigned int rowAddress)
 {
 	dev_state_t *d = state(dev);
+	page_t *p = page_find(dev, way, rowAddress);
 	record(MOCK_NSC_OP_READ_TRANSFER, dev, way, rowAddress, pageDataBuffer, spareDataBuffer);
 	if (d->readSrc[way & 7] && pageDataBuffer)
 		memcpy(pageDataBuffer, d->readSrc[way & 7], d->readSrcLen[way & 7]);
+	else if (p)
+	{
+		if (pageDataBuffer)
+			memcpy(pageDataBuffer, p->data, sizeof(p->data));
+		if (spareDataBuffer)
+			memcpy(spareDataBuffer, p->spare, sizeof(p->spare));
+	}
 	if (errorInformation)
 	{
 		errorInformation[0] = d->errInfo0[way & 7];
@@ -155,21 +275,33 @@ void V2FReadPageTransferAsync(V2FMCRegisters *dev, int way, void *pageDataBuffer
 void V2FReadPageTransferRawAsync(V2FMCRegisters *dev, int way, void *pageDataBuffer, unsigned int *completion)
 {
 	dev_state_t *d = state(dev);
-	record(MOCK_NSC_OP_READ_TRANSFER_RAW, dev, way, 0, pageDataBuffer, NULL);
+	page_t *p = page_find(dev, way, d->lastTriggerRow[way & 7]);
+	record(MOCK_NSC_OP_READ_TRANSFER_RAW, dev, way, d->lastTriggerRow[way & 7], pageDataBuffer, NULL);
 	if (d->readSrc[way & 7] && pageDataBuffer)
 		memcpy(pageDataBuffer, d->readSrc[way & 7], d->readSrcLen[way & 7]);
+	else if (p && pageDataBuffer)
+		memcpy(pageDataBuffer, p->data, sizeof(p->data));
 	if (completion)
 		*completion = d->completion[way & 7];
 }
 
 void V2FProgramPageAsync(V2FMCRegisters *dev, int way, unsigned int rowAddress, void *pageDataBuffer, void *spareDataBuffer)
 {
+	page_t *p;
 	record(MOCK_NSC_OP_PROGRAM, dev, way, rowAddress, pageDataBuffer, spareDataBuffer);
+	p = page_create(dev, way, rowAddress);
+	if (pageDataBuffer)
+		memcpy(p->data, pageDataBuffer, sizeof(p->data));
+	if (spareDataBuffer)
+		memcpy(p->spare, spareDataBuffer, sizeof(p->spare));
 }
 
 void V2FEraseBlockAsync(V2FMCRegisters *dev, int way, unsigned int rowAddress)
 {
+	unsigned int page;
 	record(MOCK_NSC_OP_ERASE, dev, way, rowAddress, NULL, NULL);
+	for (page = 0; page < MOCK_NSC_PAGES_PER_BLOCK; page++)
+		page_drop(dev, way, rowAddress + page);
 }
 
 void V2FStatusCheckAsync(V2FMCRegisters *dev, int way, unsigned int *statusReport)
