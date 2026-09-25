@@ -5,7 +5,8 @@
  * The FTL is booted once in main() (a full InitFTL boot scans the whole NAND
  * array and takes ~1.5 s); setUp then re-initialises every table these tests
  * mutate -- request pool/queues, scheduler, dependency table, data buffers,
- * slice maps, host DMA state and the IO mock log -- so tests stay independent. */
+ * slice/block/die maps and the free-slice allocation cursor, host DMA state
+ * and the IO mock log -- so tests stay independent. */
 #include <string.h>
 #include "unity.h"
 #include "ftl_test_env.h"
@@ -25,6 +26,12 @@ unsigned int CheckBufDep(unsigned int reqSlotTag);
 unsigned int CheckRowAddrDep(unsigned int reqSlotTag, unsigned int checkRowAddrDepOpt);
 unsigned int UpdateRowAddrDepTableForBufBlockedReq(unsigned int reqSlotTag);
 
+/* Non-static in address_translation.c but not exported by its header; used to
+ * rewind free-block / free-page allocation state without re-scanning NAND. */
+void InitDieMap(void);
+void InitBlockMap(void);
+void InitCurrentBlockOfDieMap(void);
+
 /* Die 3 lands on channel 1 / way 1 with USER_CHANNELS = 2. */
 #define TEST_DIE      3
 #define TEST_CH       Vdie2PchTranslation(TEST_DIE)
@@ -41,6 +48,10 @@ void setUp(void)
 	InitDependencyTable();
 	InitReqScheduler();
 	InitSliceMap();
+	InitDieMap();
+	InitBlockMap();
+	InitCurrentBlockOfDieMap();
+	sliceAllocationTargetDie = FindDieForFreeSliceAllocation();
 	InitDataBuf();
 	mock_io_reset();
 	mock_io_set_read_handler(HOST_DMA_FIFO_CNT_REG_ADDR, ftl_test_dma_fifo_instant_done, NULL);
