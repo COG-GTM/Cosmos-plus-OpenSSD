@@ -256,6 +256,9 @@ static void test_running_io_read_of_unmapped_lba_is_served_without_nand_read(voi
 	 * NAND page read is issued beyond what InitFTL() read during start-up. */
 	TEST_ASSERT_EQUAL_UINT(nand_reads_before_first_cmd,
 			mock_nsc_count_cmd(V2FCommand_ReadPageTrigger));
+	/* The slice still becomes a TxDMA request delivering the buffer to the host. */
+	TEST_ASSERT_EQUAL_UINT(1, mock_host_count(MOCK_HOST_SET_AUTO_TX_DMA));
+	TEST_ASSERT_EQUAL_UINT(2, mock_host_last(MOCK_HOST_SET_AUTO_TX_DMA)->args[0]);
 	TEST_ASSERT_EQUAL_UINT(0, mock_host_count(MOCK_HOST_SET_AUTO_RX_DMA));
 }
 
