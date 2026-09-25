@@ -332,6 +332,8 @@ static void test_reset_and_set_feature_requests_complete_without_nand_traffic(vo
 	ftl_test_drain();
 
 	after = fake_nand_stats(ch, way);
+	TEST_ASSERT_EQUAL_UINT32(before.resets + 1, after.resets);
+	TEST_ASSERT_EQUAL_UINT32(before.setFeatures + 1, after.setFeatures);
 	TEST_ASSERT_EQUAL_UINT32(before.programs, after.programs);
 	TEST_ASSERT_EQUAL_UINT32(before.erases, after.erases);
 	TEST_ASSERT_EQUAL_UINT32(before.readTriggers, after.readTriggers);

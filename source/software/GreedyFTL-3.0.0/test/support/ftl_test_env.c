@@ -83,13 +83,19 @@ void ftl_test_env_init_with_bad_blocks(const unsigned int *phyBlockNos, unsigned
 	BringUp();
 }
 
+#define CHILD_EXIT_ASSERT 0x7F
+#define CHILD_EXIT_WATCHDOG 0x7E
+
+static volatile sig_atomic_t drainWatchdogFired;
+
+/* Only a firmware ASSERT() counts; the drain watchdog is reported separately. */
 static void OnChildAbort(int sig)
 {
 	(void)sig;
 #ifdef GREEDYFTL_COVERAGE
 	__gcov_dump();
 #endif
-	_exit(0x7F);
+	_exit(drainWatchdogFired ? CHILD_EXIT_WATCHDOG : CHILD_EXIT_ASSERT);
 }
 
 int ftl_test_expect_abort(void (*fn)(void))
@@ -118,7 +124,9 @@ int ftl_test_expect_abort(void (*fn)(void))
 	}
 	if (waitpid(pid, &status, 0) != pid)
 		return 0;
-	return WIFEXITED(status) && WEXITSTATUS(status) == 0x7F;
+	if (WIFEXITED(status) && WEXITSTATUS(status) == CHILD_EXIT_WATCHDOG)
+		fprintf(stderr, "ftl_test_expect_abort: child hit the drain watchdog, not an ASSERT\n");
+	return WIFEXITED(status) && WEXITSTATUS(status) == CHILD_EXIT_ASSERT;
 }
 
 unsigned char *ftl_test_bbt_entry(unsigned int ch, unsigned int way, unsigned int bbtPhyBlock, unsigned int phyBlockNo)
@@ -148,6 +156,7 @@ void ftl_test_drain(void)
 		{
 			fprintf(stderr, "ftl_test_drain: scheduler did not converge (nand=%u nvme=%u)\n",
 					ftl_test_pending_nand_reqs(), nvmeDmaReqQ.reqCnt);
+			drainWatchdogFired = 1;
 			abort();
 		}
 	}
