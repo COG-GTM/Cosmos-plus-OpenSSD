@@ -30,7 +30,6 @@ void stub_reset(void)
 	memset(&gcVictimMapStorage, 0xff, sizeof(gcVictimMapStorage));
 	gcVictimMapPtr = &gcVictimMapStorage;
 	memset(&stub, 0, sizeof(stub));
-	stub.nextFreeVsa = STUB_FREE_VSA_BASE;
 }
 
 unsigned int GetFromFreeReqQ(void)
@@ -56,7 +55,7 @@ unsigned int FindFreeVirtualSliceForGc(unsigned int copyTargetDieNo, unsigned in
 	stub.findFreeVsaForGcCalls++;
 	stub.lastGcCopyDie = copyTargetDieNo;
 	stub.lastGcVictimBlock = victimBlockNo;
-	return stub.nextFreeVsa++;
+	return STUB_GC_COPY_VSA(copyTargetDieNo, stub.gcCopySliceCount++);
 }
 
 void SelectLowLevelReqQ(unsigned int reqSlotTag)

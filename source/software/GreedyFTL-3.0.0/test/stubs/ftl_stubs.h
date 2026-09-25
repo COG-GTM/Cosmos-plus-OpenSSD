@@ -2,11 +2,13 @@
 #define FTL_STUBS_H
 
 #define STUB_MAX_RECORDED_REQS	512
-#define STUB_FREE_VSA_BASE		0x100000
+// Virtual slice addresses interleave dies (vsa % USER_DIES == die); GC copies land on the target die.
+#define STUB_GC_COPY_BLOCK		1024
+#define STUB_GC_COPY_VSA(die, n)	(Vorg2VsaTranslation((die), STUB_GC_COPY_BLOCK, (n)))
 
 typedef struct {
 	unsigned int nextReqSlotTag;
-	unsigned int nextFreeVsa;
+	unsigned int gcCopySliceCount;
 	unsigned int allocateTempDataBufCalls;
 	unsigned int updateTempDataBufCalls;
 	unsigned int findFreeVsaForGcCalls;

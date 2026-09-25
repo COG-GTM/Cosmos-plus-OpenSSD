@@ -214,10 +214,12 @@ static void test_GarbageCollection_copies_valid_pages_then_erases(void)
 	TEST_ASSERT_EQUAL_UINT(BLK_B, stub.lastGcVictimBlock);
 
 	// the mappings now point at the freshly allocated slices
-	TEST_ASSERT_EQUAL_UINT(STUB_FREE_VSA_BASE, logicalSliceMapPtr->logicalSlice[lsa0].virtualSliceAddr);
-	TEST_ASSERT_EQUAL_UINT(STUB_FREE_VSA_BASE + 1, logicalSliceMapPtr->logicalSlice[lsa1].virtualSliceAddr);
-	TEST_ASSERT_EQUAL_UINT(lsa0, virtualSliceMapPtr->virtualSlice[STUB_FREE_VSA_BASE].logicalSliceAddr);
-	TEST_ASSERT_EQUAL_UINT(lsa1, virtualSliceMapPtr->virtualSlice[STUB_FREE_VSA_BASE + 1].logicalSliceAddr);
+	const unsigned int copy0 = STUB_GC_COPY_VSA(DIE1, 0), copy1 = STUB_GC_COPY_VSA(DIE1, 1);
+	TEST_ASSERT_EQUAL_UINT(DIE1, Vsa2VdieTranslation(copy0));
+	TEST_ASSERT_EQUAL_UINT(copy0, logicalSliceMapPtr->logicalSlice[lsa0].virtualSliceAddr);
+	TEST_ASSERT_EQUAL_UINT(copy1, logicalSliceMapPtr->logicalSlice[lsa1].virtualSliceAddr);
+	TEST_ASSERT_EQUAL_UINT(lsa0, virtualSliceMapPtr->virtualSlice[copy0].logicalSliceAddr);
+	TEST_ASSERT_EQUAL_UINT(lsa1, virtualSliceMapPtr->virtualSlice[copy1].logicalSliceAddr);
 
 	TEST_ASSERT_EQUAL_UINT(1, stub.eraseBlockCalls);
 	TEST_ASSERT_EQUAL_UINT(DIE1, stub.lastEraseDie);
@@ -250,7 +252,7 @@ static void test_GarbageCollection_read_and_write_requests_are_well_formed(void)
 	TEST_ASSERT_EQUAL_UINT(REQ_TYPE_NAND, wr->reqType);
 	TEST_ASSERT_EQUAL_UINT(REQ_CODE_WRITE, wr->reqCode);
 	TEST_ASSERT_EQUAL_UINT(lsa, wr->logicalSliceAddr);
-	TEST_ASSERT_EQUAL_UINT(STUB_FREE_VSA_BASE, wr->nandInfo.virtualSliceAddr);
+	TEST_ASSERT_EQUAL_UINT(STUB_GC_COPY_VSA(DIE0, 0), wr->nandInfo.virtualSliceAddr);
 	TEST_ASSERT_EQUAL_UINT(REQ_OPT_DATA_BUF_TEMP_ENTRY, wr->reqOpt.dataBufFormat);
 }
 
