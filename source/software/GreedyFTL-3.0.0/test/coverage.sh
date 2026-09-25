@@ -2,8 +2,8 @@
 # Report line coverage for the firmware sources compiled into the host test build.
 # Uses lcov when installed, otherwise falls back to gcov's per-file summary.
 set -e
-FTL_DIR=${FTL_DIR:-$(cd "$(dirname "$0")/.." && pwd)}
-BUILD_DIR=${BUILD_DIR:-$(pwd)}
+FTL_DIR=$(cd "${FTL_DIR:-$(dirname "$0")/..}" && pwd -P)
+BUILD_DIR=$(cd "${BUILD_DIR:-.}" && pwd -P)
 GCDA_DIR="$BUILD_DIR/CMakeFiles/ftl_under_test.dir"
 
 if command -v lcov >/dev/null 2>&1; then
