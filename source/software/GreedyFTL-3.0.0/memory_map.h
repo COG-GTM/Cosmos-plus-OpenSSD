@@ -54,6 +54,10 @@
 #include "request_transform.h"
 #include "garbage_collection.h"
 
+#ifdef HOST_TEST
+#include "host_memory_map.h"
+#else
+
 #define DRAM_START_ADDR					0x00100000
 
 #define MEMORY_SEGMENTS_START_ADDR		DRAM_START_ADDR
@@ -107,5 +111,7 @@
 #define RESERVED1_END_ADDR					0x3FFFFFFF
 
 #define DRAM_END_ADDR						0x3FFFFFFF
+
+#endif /* HOST_TEST */
 
 #endif /* MEMORY_MAP_H_ */
