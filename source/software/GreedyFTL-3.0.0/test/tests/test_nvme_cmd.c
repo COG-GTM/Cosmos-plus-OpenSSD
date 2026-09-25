@@ -338,8 +338,11 @@ static void test_completion_register_writes_carry_slot_tag_and_cpl_type(void)
 	reg.dword[2] = dword2;
 	TEST_ASSERT_EQUAL_UINT32(IO_SLOT, reg.cmdSlotTag);
 	TEST_ASSERT_EQUAL_UINT32(AUTO_CPL_TYPE, reg.cplType);
-	TEST_ASSERT_EQUAL_UINT32(1, fake_reg_writes_to(NVME_CPL_FIFO_REG_ADDR, &dword2));
+	/* Auto completions carry `specific` in dword[1]; dword[0] (sqId/cid) is
+	 * left to the hardware and must not be written. */
+	TEST_ASSERT_EQUAL_UINT32(1, fake_reg_writes_to(NVME_CPL_FIFO_REG_ADDR + 4, &dword2));
 	TEST_ASSERT_EQUAL_HEX32(0xabcd, dword2);
+	TEST_ASSERT_EQUAL_UINT32(0, fake_reg_writes_to(NVME_CPL_FIFO_REG_ADDR, &dword2));
 }
 
 /* ---- I/O commands -------------------------------------------------------- */

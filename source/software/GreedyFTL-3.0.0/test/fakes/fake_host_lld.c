@@ -246,7 +246,7 @@ void set_auto_nvme_cpl(unsigned int cmdSlotTag, unsigned int specific, unsigned 
 	reg.cmdSlotTag = cmdSlotTag;
 	reg.cplType = AUTO_CPL_TYPE;
 	reg.statusFieldWord = statusFieldWord;
-	IO_WRITE32(NVME_CPL_FIFO_REG_ADDR, reg.dword[1]);
+	IO_WRITE32((NVME_CPL_FIFO_REG_ADDR + 4), reg.dword[1]);
 	IO_WRITE32((NVME_CPL_FIFO_REG_ADDR + 8), reg.dword[2]);
 	LogCpl(AUTO_CPL_TYPE, cmdSlotTag, 0, 0, specific, statusFieldWord);
 }

@@ -120,11 +120,9 @@ if(GREEDYFTL_COVERAGE)
               --base-directory ${FW_DIR}
               --output-file ${COVERAGE_DIR}.raw.info --quiet
               --rc lcov_branch_coverage=1
-      # Keep only production firmware sources (drop test/, stubs, Unity, libc).
+      # Keep only production firmware sources (test/ fakes are built without
+      # instrumentation, so they never appear in the raw capture).
       COMMAND ${LCOV} --extract ${COVERAGE_DIR}.raw.info "${FW_DIR}/*"
-              --output-file ${COVERAGE_DIR}.fw.info --quiet
-              --rc lcov_branch_coverage=1
-      COMMAND ${LCOV} --remove ${COVERAGE_DIR}.fw.info "${FW_DIR}/test/*"
               --output-file ${COVERAGE_DIR}.info --quiet
               --rc lcov_branch_coverage=1
       COMMAND ${GENHTML} ${COVERAGE_DIR}.info --output-directory ${COVERAGE_DIR}

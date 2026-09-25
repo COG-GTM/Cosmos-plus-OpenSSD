@@ -26,7 +26,7 @@ instrumentation.
 | `CMakeLists.txt` | Builds firmware objects with `-DHOST_TEST`, fakes, and one executable per suite. |
 | `stubs/` | Header-only replacements for the Xilinx BSP (`xil_*.h`, `xparameters.h`, `xscugic.h`, ...). |
 | `fakes/fake_regs.c` | In-memory register map behind `Xil_In32/Xil_Out32` and `IO_READ32/IO_WRITE32`; records every write so tests can assert on it. |
-| `fakes/fake_nsc_driver.c` | Replaces `nsc_driver.c`: per-page NAND model with erase/program/read, bad-block list, and program/erase/ECC fault injection. |
+| `fakes/fake_nsc_driver.c` | Replaces `nsc_driver.c`: in-memory NAND model (per-row read/program, per-block erase; storage allocated per block on first program), bad-block list, and program/erase/ECC fault injection. |
 | `fakes/fake_host_lld.c` | Replaces `host_lld.c`: logs DMA descriptors and NVMe completions, models the command FIFO. |
 | `fakes/host_memory.c` | Below-4 GiB arena that backs the `memory_map.h` addresses under `HOST_TEST`. |
 | `support/ftl_test_env.c` | Fixture: resets all fakes, runs `InitFTL()`, drains the scheduler, issues production-path writes. |

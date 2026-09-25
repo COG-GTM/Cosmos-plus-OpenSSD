@@ -6,8 +6,9 @@
  *
  * Geometry follows ftl_config.h: USER_CHANNELS x USER_WAYS dies, each with
  * TOTAL_BLOCKS_PER_DIE blocks of ROWS_PER_MLC_BLOCK rows of BYTES_PER_NAND_ROW
- * bytes. Rows are allocated lazily on first program so an untouched die costs
- * nothing. Erased bytes read back as 0xFF.
+ * bytes. Storage is allocated lazily per block (ROWS_PER_MLC_BLOCK x
+ * BYTES_PER_NAND_ROW, ~4.4 MiB) on the first program to that block, so an
+ * untouched block costs nothing. Erased bytes read back as 0xFF.
  *
  * Row addresses use the firmware encoding from request_schedule.c:
  *   rowAddr = LUN_x_BASE_ADDR + blockInLun * ROWS_PER_MLC_BLOCK + row
