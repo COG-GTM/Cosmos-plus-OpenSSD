@@ -8,6 +8,7 @@
 #include "request_transform.h"
 #include "request_format.h"
 #include "address_translation.h"
+#include "request_schedule.h"
 
 /* data_buffer.h declares `dataBufHashTable` but data_buffer.c defines
  * `dataBufHashTablePtr`. */
@@ -18,7 +19,22 @@ void EvictDataBufEntry(unsigned int originReqSlotTag);
 #define ENTRY_COUNT AVAILABLE_DATA_BUFFER_ENTRY_COUNT
 #define LAST_ENTRY  (AVAILABLE_DATA_BUFFER_ENTRY_COUNT - 1)
 
-void setUp(void) { ftl_test_env_reset(); ftl_test_env_init_ftl(); }
+/* The full InitFTL() boot (NAND scan + bad block table) is slow, and these
+ * tests only touch the request pool, scheduler queues and data buffer, so boot
+ * once and re-initialise just those tables before every test. */
+void setUp(void)
+{
+	static int booted;
+
+	if (!booted) {
+		ftl_test_env_init_ftl();
+		booted = 1;
+	}
+	InitReqPool();
+	InitDependencyTable();
+	InitReqScheduler();
+	InitDataBuf();
+}
 void tearDown(void) {}
 
 /* ----------------------------------------------------------------------- */
