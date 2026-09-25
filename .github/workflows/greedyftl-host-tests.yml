@@ -1,0 +1,83 @@
+name: GreedyFTL host tests
+
+on:
+  push:
+    paths:
+      - "source/software/GreedyFTL-3.0.0/**"
+      - ".github/workflows/greedyftl-host-tests.yml"
+  pull_request:
+    paths:
+      - "source/software/GreedyFTL-3.0.0/**"
+      - ".github/workflows/greedyftl-host-tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  coverage:
+    name: Tests + coverage (2 channels)
+    runs-on: ubuntu-22.04
+    env:
+      BUILD_DIR: ${{ github.workspace }}/build/greedyftl-test
+      TEST_DIR: source/software/GreedyFTL-3.0.0/test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install lcov
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends lcov
+
+      - name: Configure
+        run: cmake -S "$TEST_DIR" -B "$BUILD_DIR" -DGREEDYFTL_TEST_CHANNELS=2
+
+      - name: Build
+        run: cmake --build "$BUILD_DIR" -j"$(nproc)"
+
+      - name: Run tests with coverage
+        run: cmake --build "$BUILD_DIR" --target coverage
+
+      - name: Coverage job summary
+        if: always()
+        run: |
+          summary="$BUILD_DIR/coverage/summary.txt"
+          per_file="$BUILD_DIR/coverage/per_file.txt"
+          if [ ! -f "$summary" ]; then
+            echo "Coverage summary was not produced." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          total=$(grep -E '^\s+lines' "$summary" | sed -E 's/^\s+lines\.+: //')
+          {
+            echo "## GreedyFTL-3.0.0 host test coverage"
+            echo
+            echo "**Total line coverage: ${total}**"
+            echo
+            echo '```'
+            cat "$per_file"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: greedyftl-coverage-html
+          path: ${{ env.BUILD_DIR }}/coverage/
+          if-no-files-found: ignore
+
+  full-topology:
+    name: Tests (8 channels, production topology)
+    runs-on: ubuntu-22.04
+    env:
+      BUILD_DIR: ${{ github.workspace }}/build/greedyftl-test-8ch
+      TEST_DIR: source/software/GreedyFTL-3.0.0/test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S "$TEST_DIR" -B "$BUILD_DIR" -DGREEDYFTL_TEST_CHANNELS=8 -DGREEDYFTL_COVERAGE=OFF
+
+      - name: Build
+        run: cmake --build "$BUILD_DIR" -j"$(nproc)"
+
+      - name: Test
+        run: ctest --test-dir "$BUILD_DIR" --output-on-failure
