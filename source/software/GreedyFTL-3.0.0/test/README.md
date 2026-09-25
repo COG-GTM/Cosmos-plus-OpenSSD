@@ -42,6 +42,9 @@ unmodified. `xparameters.h` in `stubs/` exposes two NAND channels x 8 ways
 
 Firmware stores DRAM pointers in `unsigned int`, so the host arena must live
 below 4 GiB; `host_memory.c` uses `MAP_32BIT`/a fixed hint to guarantee that.
+This makes the harness **Linux-only**: macOS reserves the whole low 4 GiB
+(`__PAGEZERO`), so every test aborts in `host_memory_init()` there. On a Mac,
+run the suite in a Linux container (e.g. `docker run -v $PWD:/src ubuntu:24.04`).
 
 ## Writing a test
 
@@ -74,4 +77,8 @@ Useful hooks: `fake_nand_fail_next_program()`, `fake_nand_mark_bad()`,
   rebuild; `cmake --build build --target coverage` zeroes counters first, or
   `find build -name '*.gcda' -delete`.
 * `mmap` failure in `host_memory_init()`: the process could not get a
-  below-4 GiB mapping; make sure ASLR/`ulimit -v` are not restricting it.
+  below-4 GiB mapping; make sure ASLR/`ulimit -v` are not restricting it, or
+  you are on macOS (see above).
+* `lcov: ERROR: ... is unused` / `RC option ... is deprecated`: lcov 2.x is
+  stricter than 1.x; the `coverage` target only uses patterns that match on
+  both, but branch data is only reported by lcov 1.x.
