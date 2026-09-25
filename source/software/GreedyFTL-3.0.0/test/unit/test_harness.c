@@ -6,6 +6,7 @@
 #include "memory_map.h"
 #include "nvme/host_lld.h"
 #include "request_allocation.h"
+#include "address_translation.h"
 
 void setUp(void)
 {
@@ -126,8 +127,67 @@ static void test_nsc_mock_stores_programmed_pages_until_erase(void)
 	V2FEraseBlockAsync(dev, 2, 17 * PAGES_PER_MLC_BLOCK);
 	TEST_ASSERT_NULL(mock_nsc_page_data(dev, 2, row));
 	memset(out, 0, sizeof(out));
+	memset(outSpare, 0, sizeof(outSpare));
 	V2FReadPageTransferAsync(dev, 2, out, outSpare, err, &done, row);
-	TEST_ASSERT_EACH_EQUAL_UINT8(0, out, 64);
+	TEST_ASSERT_EACH_EQUAL_UINT8(0xFF, out, sizeof(out));
+	TEST_ASSERT_EACH_EQUAL_UINT8(0xFF, outSpare, sizeof(outSpare));
+}
+
+static void test_nsc_mock_raw_read_returns_data_then_spare_row(void)
+{
+	V2FMCRegisters *dev = (V2FMCRegisters *)(uintptr_t)XPAR_TIGER4NSC_1_BASEADDR;
+	static unsigned char page[BYTES_PER_DATA_REGION_OF_PAGE];
+	static unsigned char spare[BYTES_PER_SPARE_REGION_OF_PAGE];
+	static unsigned char raw[BYTES_PER_NAND_ROW];
+	static unsigned char rowSrc[BYTES_PER_NAND_ROW];
+	unsigned int done = 0;
+
+	memset(raw, 0, sizeof(raw));
+	V2FReadPageTriggerAsync(dev, 5, 40);
+	V2FReadPageTransferRawAsync(dev, 5, raw, &done);
+	TEST_ASSERT_EQUAL_UINT8(0xFF, raw[BAD_BLOCK_MARK_BYTE0]);
+	TEST_ASSERT_EQUAL_UINT8(0xFF, raw[BAD_BLOCK_MARK_BYTE1]);
+	TEST_ASSERT_EQUAL_UINT8(0xFF, raw[BYTES_PER_NAND_ROW - 1]);
+
+	memset(page, 0x11, sizeof(page));
+	memset(spare, 0x00, sizeof(spare));
+	V2FProgramPageAsync(dev, 5, 40, page, spare);
+	V2FReadPageTriggerAsync(dev, 5, 40);
+	V2FReadPageTransferRawAsync(dev, 5, raw, &done);
+	TEST_ASSERT_EQUAL_UINT8(0x11, raw[BAD_BLOCK_MARK_BYTE0]);
+	TEST_ASSERT_EQUAL_UINT8(0x00, raw[BAD_BLOCK_MARK_BYTE1]);
+	TEST_ASSERT_EQUAL_UINT8(0xFF, raw[BYTES_PER_NAND_ROW - 1]);
+
+	/* An oversized override is clamped to the destination. */
+	memset(rowSrc, 0x77, sizeof(rowSrc));
+	memset(page, 0, sizeof(page));
+	mock_nsc_set_read_page_source(dev, 5, rowSrc, sizeof(rowSrc));
+	{
+		static unsigned char guarded[BYTES_PER_DATA_REGION_OF_PAGE + 16];
+		memset(guarded, 0xEE, sizeof(guarded));
+		V2FReadPageTransferAsync(dev, 5, guarded, spare, NULL, &done, 40);
+		TEST_ASSERT_EQUAL_UINT8(0x77, guarded[BYTES_PER_DATA_REGION_OF_PAGE - 1]);
+		TEST_ASSERT_EQUAL_UINT8(0xEE, guarded[BYTES_PER_DATA_REGION_OF_PAGE]);
+	}
+}
+
+static void test_default_boot_builds_bad_block_table_on_erased_nand(void)
+{
+	unsigned int dieNo, blockNo, bad = 0;
+	ftl_test_env_init_ftl();
+	/* Erased NAND has no table: FindBadBlock() scans and SaveBadBlockTable()
+	 * programs one table page per die. Every block scans clean (0xFF marks). */
+	TEST_ASSERT_TRUE(mock_nsc_count_op(MOCK_NSC_OP_PROGRAM) >= (size_t)USER_DIES);
+	for (dieNo = 0; dieNo < USER_DIES; dieNo++)
+		for (blockNo = 0; blockNo < TOTAL_BLOCKS_PER_DIE; blockNo++)
+			if (phyBlockMapPtr->phyBlock[dieNo][blockNo].bad &&
+			    blockNo != bbtInfoMapPtr->bbtInfo[dieNo].phyBlock)
+				bad++;
+	TEST_ASSERT_EQUAL_UINT(0, bad);
+	TEST_ASSERT_NOT_NULL(mock_nsc_page_data(
+		(V2FMCRegisters *)(uintptr_t)XPAR_TIGER4NSC_0_BASEADDR, 0,
+		bbtInfoMapPtr->bbtInfo[0].phyBlock * PAGES_PER_MLC_BLOCK
+			+ PlsbPage2VpageTranslation(START_PAGE_NO_OF_BAD_BLOCK_TABLE_BLOCK)));
 }
 
 static void test_io_mock_write_log_grows_past_initial_capacity(void)
@@ -184,6 +244,8 @@ int main(void)
 	RUN_TEST(test_nsc_mock_default_is_ideal_nand);
 	RUN_TEST(test_nsc_mock_failure_injection);
 	RUN_TEST(test_nsc_mock_stores_programmed_pages_until_erase);
+	RUN_TEST(test_nsc_mock_raw_read_returns_data_then_spare_row);
+	RUN_TEST(test_default_boot_builds_bad_block_table_on_erased_nand);
 	RUN_TEST(test_io_mock_write_log_grows_past_initial_capacity);
 	RUN_TEST(test_init_ftl_with_console_x_erases_whole_array);
 	RUN_TEST(test_firmware_assert_is_capturable);

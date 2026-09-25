@@ -10,6 +10,7 @@
 #define MOCK_NSC_PAGE_DATA_BYTES   BYTES_PER_DATA_REGION_OF_PAGE
 #define MOCK_NSC_PAGE_SPARE_BYTES  BYTES_PER_SPARE_REGION_OF_PAGE
 #define MOCK_NSC_PAGES_PER_BLOCK   PAGES_PER_MLC_BLOCK
+#define MOCK_NSC_ERASED_BYTE       0xFF
 
 typedef struct
 {
@@ -29,9 +30,7 @@ typedef struct
 static dev_state_t devs[MOCK_NSC_MAX_DEVS];
 
 /* Contents of every programmed page, keyed by (dev, way, row). Pages that
- * were never programmed (or were erased) leave the read buffer untouched, so
- * a freshly reset mock still looks like the all-zero NAND the boot path
- * expects. */
+ * were never programmed (or were erased) read back as erased NAND (0xFF). */
 typedef struct page_t
 {
 	V2FMCRegisters *dev;
@@ -248,20 +247,32 @@ void V2FReadPageTriggerAsync(V2FMCRegisters *dev, int way, unsigned int rowAddre
 	state(dev)->lastTriggerRow[way & 7] = rowAddress;
 }
 
+static size_t min_size(size_t a, size_t b) { return a < b ? a : b; }
+
 void V2FReadPageTransferAsync(V2FMCRegisters *dev, int way, void *pageDataBuffer, void *spareDataBuffer,
                               unsigned int *errorInformation, unsigned int *completion, unsigned int rowAddress)
 {
 	dev_state_t *d = state(dev);
 	page_t *p = page_find(dev, way, rowAddress);
 	record(MOCK_NSC_OP_READ_TRANSFER, dev, way, rowAddress, pageDataBuffer, spareDataBuffer);
-	if (d->readSrc[way & 7] && pageDataBuffer)
-		memcpy(pageDataBuffer, d->readSrc[way & 7], d->readSrcLen[way & 7]);
+	if (d->readSrc[way & 7])
+	{
+		if (pageDataBuffer)
+			memcpy(pageDataBuffer, d->readSrc[way & 7], min_size(d->readSrcLen[way & 7], MOCK_NSC_PAGE_DATA_BYTES));
+	}
 	else if (p)
 	{
 		if (pageDataBuffer)
 			memcpy(pageDataBuffer, p->data, sizeof(p->data));
 		if (spareDataBuffer)
 			memcpy(spareDataBuffer, p->spare, sizeof(p->spare));
+	}
+	else
+	{
+		if (pageDataBuffer)
+			memset(pageDataBuffer, MOCK_NSC_ERASED_BYTE, MOCK_NSC_PAGE_DATA_BYTES);
+		if (spareDataBuffer)
+			memset(spareDataBuffer, MOCK_NSC_ERASED_BYTE, MOCK_NSC_PAGE_SPARE_BYTES);
 	}
 	if (errorInformation)
 	{
@@ -272,15 +283,28 @@ void V2FReadPageTransferAsync(V2FMCRegisters *dev, int way, void *pageDataBuffer
 		*completion = d->completion[way & 7];
 }
 
+/* Raw transfers return one whole NAND row: data region, then spare region. */
 void V2FReadPageTransferRawAsync(V2FMCRegisters *dev, int way, void *pageDataBuffer, unsigned int *completion)
 {
 	dev_state_t *d = state(dev);
-	page_t *p = page_find(dev, way, d->lastTriggerRow[way & 7]);
-	record(MOCK_NSC_OP_READ_TRANSFER_RAW, dev, way, d->lastTriggerRow[way & 7], pageDataBuffer, NULL);
-	if (d->readSrc[way & 7] && pageDataBuffer)
-		memcpy(pageDataBuffer, d->readSrc[way & 7], d->readSrcLen[way & 7]);
-	else if (p && pageDataBuffer)
-		memcpy(pageDataBuffer, p->data, sizeof(p->data));
+	unsigned int row = d->lastTriggerRow[way & 7];
+	page_t *p = page_find(dev, way, row);
+	unsigned char *raw = pageDataBuffer;
+	record(MOCK_NSC_OP_READ_TRANSFER_RAW, dev, way, row, pageDataBuffer, NULL);
+	if (raw)
+	{
+		if (d->readSrc[way & 7])
+			memcpy(raw, d->readSrc[way & 7], min_size(d->readSrcLen[way & 7], BYTES_PER_NAND_ROW));
+		else
+		{
+			memset(raw, MOCK_NSC_ERASED_BYTE, BYTES_PER_NAND_ROW);
+			if (p)
+			{
+				memcpy(raw, p->data, sizeof(p->data));
+				memcpy(raw + BYTES_PER_DATA_REGION_OF_NAND_ROW, p->spare, sizeof(p->spare));
+			}
+		}
+	}
 	if (completion)
 		*completion = d->completion[way & 7];
 }
