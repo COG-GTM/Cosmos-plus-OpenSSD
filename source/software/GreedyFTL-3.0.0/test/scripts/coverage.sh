@@ -15,6 +15,14 @@ fw_dir=$(cd "$2" && pwd)
 out_dir="${build_dir}/coverage"
 test_dir="${fw_dir}/test"
 
+# lcov >= 2.0 fails when an exclude pattern matches nothing; 1.x rejects
+# the "unused" error class, so only pass it where it exists.
+lcov_major=$(lcov --version | sed -nE 's/.*version ([0-9]+).*/\1/p')
+remove_opts=()
+if [ "${lcov_major:-1}" -ge 2 ]; then
+  remove_opts=(--ignore-errors unused)
+fi
+
 mkdir -p "${out_dir}"
 rm -f "${out_dir}"/*.info
 
@@ -31,7 +39,7 @@ lcov --quiet --add-tracefile "${out_dir}/baseline.info" \
   --add-tracefile "${out_dir}/tests.info" --output-file "${out_dir}/total.info"
 lcov --quiet --extract "${out_dir}/total.info" "${fw_dir}/*" \
   --output-file "${out_dir}/fw.info"
-lcov --quiet --remove "${out_dir}/fw.info" "${test_dir}/*" \
+lcov --quiet --remove "${out_dir}/fw.info" "${test_dir}/*" "${remove_opts[@]}" \
   --output-file "${out_dir}/coverage.info"
 
 lcov --summary "${out_dir}/coverage.info" 2>&1 | tee "${out_dir}/summary.txt"
