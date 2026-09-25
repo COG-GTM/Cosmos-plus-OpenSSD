@@ -525,6 +525,7 @@ static void test_erase_block_recycles_block_and_clears_slice_mappings(void)
 	unsigned int cnt = virtualDieMapPtr->die[die].freeBlockCnt;
 	size_t erasesBefore = mock_nsc_count_op(MOCK_NSC_OP_ERASE);
 
+	logicalSliceMapPtr->logicalSlice[lsa].virtualSliceAddr = vsa;
 	virtualSliceMapPtr->virtualSlice[vsa].logicalSliceAddr = lsa;
 	virtualBlockMapPtr->block[die][block].invalidSliceCnt = 4;
 
@@ -538,6 +539,9 @@ static void test_erase_block_recycles_block_and_clears_slice_mappings(void)
 	TEST_ASSERT_EQUAL_UINT(cnt + 1, virtualDieMapPtr->die[die].freeBlockCnt);
 	TEST_ASSERT_EQUAL_UINT(block, virtualDieMapPtr->die[die].tailFreeBlock);
 	TEST_ASSERT_EQUAL_HEX32(LSA_NONE, virtualSliceMapPtr->virtualSlice[vsa].logicalSliceAddr);
+	/* EraseBlock only clears the reverse map; GC must have migrated (or
+	 * invalidated) every valid slice beforehand, so the forward map is left as is */
+	TEST_ASSERT_EQUAL_UINT(vsa, logicalSliceMapPtr->logicalSlice[lsa].virtualSliceAddr);
 	TEST_ASSERT_EQUAL_size_t(erasesBefore + 1, mock_nsc_count_op(MOCK_NSC_OP_ERASE));
 }
 
@@ -824,6 +828,7 @@ static void test_update_bbt_for_grown_bad_block_rewrites_only_booked_dies(void)
 	size_t programsBefore = mock_nsc_count_op(MOCK_NSC_OP_PROGRAM);
 	size_t erasesBefore = mock_nsc_count_op(MOCK_NSC_OP_ERASE);
 	size_t i, n = mock_nsc_call_count();
+	const unsigned char *stored;
 
 	UpdatePhyBlockMapForGrownBadBlock(die, 1234);
 	UpdateBadBlockTableForGrownBadBlock(RESERVED_DATA_BUFFER_BASE_ADDR);
@@ -845,6 +850,20 @@ static void test_update_bbt_for_grown_bad_block_rewrites_only_booked_dies(void)
 			TEST_ASSERT_EQUAL_UINT(bbtBlock, c->rowAddress / ROWS_PER_MLC_BLOCK);
 		}
 	}
+
+	/* the mark must have reached the persistent table page in NAND */
+	stored = mock_nsc_page_data(chCtlReg[Vdie2PchTranslation(die)], Vdie2PwayTranslation(die),
+	                            rowOfPhyBlockPage(bbtBlock, Vpage2PlsbPageTranslation(1)));
+	TEST_ASSERT_NOT_NULL(stored);
+	TEST_ASSERT_EQUAL_UINT8(BLOCK_STATE_BAD, stored[1234]);
+	TEST_ASSERT_EQUAL_UINT8(BLOCK_STATE_NORMAL, stored[1233]);
+	TEST_ASSERT_EQUAL_UINT8(BLOCK_STATE_NORMAL, stored[bbtBlock]);
+
+	/* ... and survives a table recovery from that NAND page */
+	resetPhyBlockMapOfDie(die);
+	RecoverBadBlockTable(RESERVED_DATA_BUFFER_BASE_ADDR);
+	TEST_ASSERT_EQUAL_UINT(1, phyBlockMapPtr->phyBlock[die][1234].bad);
+	TEST_ASSERT_EQUAL_UINT(0, phyBlockMapPtr->phyBlock[die][1233].bad);
 }
 
 int main(void)
