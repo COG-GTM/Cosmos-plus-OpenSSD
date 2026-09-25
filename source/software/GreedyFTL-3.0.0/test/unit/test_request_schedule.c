@@ -278,6 +278,20 @@ static void test_requests_on_all_ways_complete_and_idle_list_is_rebuilt(void)
 	}
 }
 
+/* snapshot of the way's queue taken the moment the program page is issued */
+static unsigned int program_issued_head_req;
+static unsigned int program_issued_not_completed_cnt;
+static unsigned int program_issued_prior_erase_cnt;
+
+static void snapshot_on_program_hook(const mock_nsc_call_t *call)
+{
+	if (call->cmd != V2FCommand_ProgramPage)
+		return;
+	program_issued_head_req = nandReqQ[TEST_CH][0].headReq;
+	program_issued_not_completed_cnt = notCompletedNandReqCnt;
+	program_issued_prior_erase_cnt = mock_nsc_count_cmd(V2FCommand_BlockErase);
+}
+
 static void test_queued_requests_on_same_way_run_in_order(void)
 {
 	unsigned int first = submit_phy_req(REQ_CODE_ERASE, 0, 10, 0);
@@ -287,35 +301,24 @@ static void test_queued_requests_on_same_way_run_in_order(void)
 	TEST_ASSERT_EQUAL_UINT(first, nandReqQ[TEST_CH][0].headReq);
 	TEST_ASSERT_EQUAL_UINT(second, nandReqQ[TEST_CH][0].tailReq);
 
+	program_issued_head_req = REQ_SLOT_TAG_NONE;
+	mock_nsc_set_hook(snapshot_on_program_hook);
 	SyncAllLowLevelReqDone();
+	mock_nsc_set_hook(NULL);
 
 	TEST_ASSERT_EQUAL_UINT(0, notCompletedNandReqCnt);
 	TEST_ASSERT_EQUAL_UINT(1, mock_nsc_count_cmd(V2FCommand_ProgramPage));
 	TEST_ASSERT_EQUAL_UINT(1, mock_nsc_count_cmd(V2FCommand_BlockErase));
 
-	/* every op before the program must belong to the erase (erase itself or
-	 * its status checks); the program is the last non-status command */
-	{
-		unsigned int i, eraseIndex = 0, programIndex = 0;
-		unsigned int seenErase = 0, seenProgram = 0;
+	call = mock_nsc_call_at(0);
+	TEST_ASSERT_NOT_NULL(call);
+	TEST_ASSERT_EQUAL_UINT(V2FCommand_BlockErase, call->cmd);
 
-		for (i = 0; i < mock_nsc_call_count(); i++) {
-			call = mock_nsc_call_at(i);
-			TEST_ASSERT_NOT_NULL(call);
-			if (call->cmd == V2FCommand_BlockErase) {
-				eraseIndex = i;
-				seenErase = 1;
-			} else if (call->cmd == V2FCommand_ProgramPage) {
-				programIndex = i;
-				seenProgram = 1;
-			} else {
-				TEST_ASSERT_EQUAL_UINT(V2FCommand_StatusCheck, call->cmd);
-			}
-		}
-		TEST_ASSERT_TRUE(seenErase && seenProgram);
-		TEST_ASSERT_EQUAL_UINT(0, eraseIndex);
-		TEST_ASSERT_TRUE(programIndex > eraseIndex);
-	}
+	/* when the program was issued the erase had already been issued AND
+	 * completed: the write was the queue head and the only outstanding req */
+	TEST_ASSERT_EQUAL_UINT(1, program_issued_prior_erase_cnt);
+	TEST_ASSERT_EQUAL_UINT(second, program_issued_head_req);
+	TEST_ASSERT_EQUAL_UINT(1, program_issued_not_completed_cnt);
 }
 
 /* ------------------------------------------------------------------------ */
