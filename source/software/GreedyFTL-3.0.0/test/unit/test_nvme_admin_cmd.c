@@ -206,8 +206,6 @@ static void test_identify_controller_data_fields(void)
 	TEST_ASSERT_EQUAL_STRING_LEN(SERIAL_NUMBER, sn, strlen(SERIAL_NUMBER));
 	TEST_ASSERT_EQUAL_STRING_LEN(MODEL_NUMBER, mn, strlen(MODEL_NUMBER));
 	TEST_ASSERT_EQUAL_STRING_LEN(FIRMWARE_REVISION, fr, strlen(FIRMWARE_REVISION));
-	/* Trailing space padding: the NUL after the literal is copied, remaining bytes are 0x20. */
-	TEST_ASSERT_EQUAL_HEX8(0x00, (unsigned char)sn[strlen(SERIAL_NUMBER)]);
 	TEST_ASSERT_EQUAL_HEX8(0x20, (unsigned char)sn[19]);
 	TEST_ASSERT_EQUAL_HEX8(0x20, (unsigned char)mn[39]);
 
@@ -239,6 +237,26 @@ static void test_identify_controller_data_fields(void)
 	/* Whole structure was cleared before formatting. */
 	TEST_ASSERT_EQUAL_HEX16(0, id->PSDx[1].MP);
 	TEST_ASSERT_EQUAL_HEX16(0, id->AWUN);
+}
+
+static void test_identify_controller_strings_are_space_padded(void)
+{
+	ADMIN_IDENTIFY_CONTROLLER *id = fw_ptr(ADMIN_CMD_DRAM_DATA_BUFFER);
+	unsigned int i;
+
+	TEST_IGNORE_MESSAGE("BUG: identify_controller copies the string NUL terminator into "
+			    "SN/MN/FR; NVMe requires ASCII space padding with no NUL bytes");
+
+	identify_controller(ADMIN_CMD_DRAM_DATA_BUFFER);
+
+	/* Expected: every byte past the literal is 0x20.
+	 * Actual: byte at strlen(literal) is 0x00 (the copied terminator). */
+	for (i = strlen(SERIAL_NUMBER); i < sizeof(id->SN); i++)
+		TEST_ASSERT_EQUAL_HEX8(0x20, (unsigned char)id->SN[i]);
+	for (i = strlen(MODEL_NUMBER); i < sizeof(id->MN); i++)
+		TEST_ASSERT_EQUAL_HEX8(0x20, (unsigned char)id->MN[i]);
+	for (i = strlen(FIRMWARE_REVISION); i < sizeof(id->FR); i++)
+		TEST_ASSERT_EQUAL_HEX8(0x20, (unsigned char)id->FR[i]);
 }
 
 static void test_identify_namespace_data_fields(void)
@@ -832,6 +850,7 @@ int main(void)
 	RUN_TEST(test_identify_controller_asserts_on_misaligned_prp1);
 	RUN_TEST(test_identify_namespace_asserts_on_misaligned_prp2);
 	RUN_TEST(test_identify_controller_data_fields);
+	RUN_TEST(test_identify_controller_strings_are_space_padded);
 	RUN_TEST(test_identify_namespace_data_fields);
 	RUN_TEST(test_identify_namespace_tracks_ftl_capacity);
 	RUN_TEST(test_get_num_of_queue_passes_small_counts_through);
