@@ -33,6 +33,10 @@ void ftl_test_env_reset(void);
  * boot-time initialisation against the ideal mocked NAND array. */
 void ftl_test_env_init_ftl(void);
 
+/* Same, but with console bytes queued for the boot: "X" makes
+ * InitBlockDieMap() erase the array and rebuild the bad block table. */
+void ftl_test_env_init_ftl_with_console(const char *console_input);
+
 /* Route firmware xil_printf output to stdout (default: silent unless FTL_TEST_VERBOSE=1). */
 void ftl_test_set_verbose(int verbose);
 extern unsigned long ftl_test_printf_count;

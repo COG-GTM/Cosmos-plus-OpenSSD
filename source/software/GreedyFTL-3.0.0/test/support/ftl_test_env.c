@@ -74,8 +74,14 @@ void ftl_test_env_reset(void)
 	ftl_test_assert_hit = 0;
 }
 
-void ftl_test_env_init_ftl(void)
+void ftl_test_env_init_ftl_with_console(const char *console_input)
 {
 	ftl_test_env_reset();
+	ftl_test_queue_inbyte(console_input);
 	InitFTL();
+}
+
+void ftl_test_env_init_ftl(void)
+{
+	ftl_test_env_init_ftl_with_console(NULL);
 }
