@@ -1,9 +1,11 @@
 /* Proves the host harness itself: emulated DRAM window, IO mock, NSC mock,
  * assert capture, and a full InitFTL() boot against the mocked NAND array. */
+#include <string.h>
 #include "unity.h"
 #include "ftl_test_env.h"
 #include "memory_map.h"
 #include "nvme/host_lld.h"
+#include "request_allocation.h"
 
 void setUp(void)
 {
@@ -97,6 +99,59 @@ static void test_nsc_mock_failure_injection(void)
 	TEST_ASSERT_FALSE(V2FRequestFail(V2FEliminateReportDoneFlag(status)));
 }
 
+static void test_nsc_mock_stores_programmed_pages_until_erase(void)
+{
+	V2FMCRegisters *dev = (V2FMCRegisters *)(uintptr_t)XPAR_TIGER4NSC_0_BASEADDR;
+	static unsigned char page[BYTES_PER_DATA_REGION_OF_PAGE];
+	static unsigned char spare[BYTES_PER_SPARE_REGION_OF_PAGE];
+	static unsigned char out[BYTES_PER_DATA_REGION_OF_PAGE];
+	static unsigned char outSpare[BYTES_PER_SPARE_REGION_OF_PAGE];
+	unsigned int err[2], done = 0;
+	unsigned int row = 17 * PAGES_PER_MLC_BLOCK + 3;
+
+	memset(page, 0xA5, sizeof(page));
+	memset(spare, 0x5A, sizeof(spare));
+	TEST_ASSERT_NULL(mock_nsc_page_data(dev, 2, row));
+
+	V2FProgramPageAsync(dev, 2, row, page, spare);
+	TEST_ASSERT_NOT_NULL(mock_nsc_page_data(dev, 2, row));
+	TEST_ASSERT_NULL(mock_nsc_page_data(dev, 3, row));
+
+	V2FReadPageTriggerAsync(dev, 2, row);
+	V2FReadPageTransferAsync(dev, 2, out, outSpare, err, &done, row);
+	TEST_ASSERT_EQUAL_MEMORY(page, out, sizeof(page));
+	TEST_ASSERT_EQUAL_MEMORY(spare, outSpare, sizeof(spare));
+	TEST_ASSERT_EQUAL_UINT(1, done);
+
+	V2FEraseBlockAsync(dev, 2, 17 * PAGES_PER_MLC_BLOCK);
+	TEST_ASSERT_NULL(mock_nsc_page_data(dev, 2, row));
+	memset(out, 0, sizeof(out));
+	V2FReadPageTransferAsync(dev, 2, out, outSpare, err, &done, row);
+	TEST_ASSERT_EACH_EQUAL_UINT8(0, out, 64);
+}
+
+static void test_io_mock_write_log_grows_past_initial_capacity(void)
+{
+	size_t i;
+	int found = 0;
+	for (i = 0; i < 5000; i++)
+		mock_io_write32(0x43C00000u, (uint32_t)i);
+	mock_io_write32(0x43C00004u, 0x55u);
+	TEST_ASSERT_EQUAL_size_t(5001, mock_io_write_count());
+	TEST_ASSERT_EQUAL_size_t(5000, mock_io_write_count_for(0x43C00000u));
+	TEST_ASSERT_EQUAL_HEX32(0x55u, mock_io_last_write(0x43C00004u, &found));
+	TEST_ASSERT_TRUE(found);
+	TEST_ASSERT_EQUAL_HEX32(4999u, mock_io_write_at(4999)->value);
+}
+
+static void test_init_ftl_with_console_x_erases_whole_array(void)
+{
+	ftl_test_env_init_ftl_with_console("X");
+	/* 'X' runs EraseTotalBlockSpace(): one erase per block of every die. */
+	TEST_ASSERT_TRUE(mock_nsc_count_op(MOCK_NSC_OP_ERASE) >= (size_t)USER_DIES * TOTAL_BLOCKS_PER_DIE);
+	TEST_ASSERT_EQUAL_UINT(0, notCompletedNandReqCnt);
+}
+
 static void test_firmware_assert_is_capturable(void)
 {
 	FTL_TEST_EXPECT_ASSERT(assert(!"deliberate"));
@@ -128,6 +183,9 @@ int main(void)
 	RUN_TEST(test_io_mock_read_handler_overrides_stored_value);
 	RUN_TEST(test_nsc_mock_default_is_ideal_nand);
 	RUN_TEST(test_nsc_mock_failure_injection);
+	RUN_TEST(test_nsc_mock_stores_programmed_pages_until_erase);
+	RUN_TEST(test_io_mock_write_log_grows_past_initial_capacity);
+	RUN_TEST(test_init_ftl_with_console_x_erases_whole_array);
 	RUN_TEST(test_firmware_assert_is_capturable);
 	RUN_TEST(test_init_ftl_boots_against_mocked_nand);
 	return UNITY_END();

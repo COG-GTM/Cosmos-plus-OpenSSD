@@ -1,17 +1,20 @@
 #include "mock_io.h"
 #include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
 
 #define MOCK_IO_MAX_REGS      1024
 #define MOCK_IO_MAX_HANDLERS  64
-#define MOCK_IO_LOG_SIZE      4096
+#define MOCK_IO_LOG_INITIAL   4096
 
 typedef struct { uintptr_t addr; uint32_t value; int used; } reg_t;
 typedef struct { uintptr_t addr; mock_io_read_handler_t rd; mock_io_write_handler_t wr; void *rd_ctx; void *wr_ctx; int used; } handler_t;
 
 static reg_t regs[MOCK_IO_MAX_REGS];
 static handler_t handlers[MOCK_IO_MAX_HANDLERS];
-static mock_io_write_t log_[MOCK_IO_LOG_SIZE];
+static mock_io_write_t *log_;
 static size_t log_count;
+static size_t log_cap;
 static size_t read_count;
 
 static reg_t *find_reg(uintptr_t addr, int create)
@@ -69,11 +72,20 @@ void mock_io_write32(uintptr_t addr, uint32_t value)
 	handler_t *h = find_handler(addr, 0);
 	if (r)
 		r->value = value;
-	if (log_count < MOCK_IO_LOG_SIZE)
+	if (log_count == log_cap)
 	{
-		log_[log_count].addr = addr;
-		log_[log_count].value = value;
+		size_t cap = log_cap ? log_cap * 2 : MOCK_IO_LOG_INITIAL;
+		mock_io_write_t *grown = realloc(log_, cap * sizeof(*grown));
+		if (!grown)
+		{
+			fprintf(stderr, "mock_io: out of memory growing write log\n");
+			abort();
+		}
+		log_ = grown;
+		log_cap = cap;
 	}
+	log_[log_count].addr = addr;
+	log_[log_count].value = value;
 	log_count++;
 	if (h && h->wr)
 		h->wr(addr, value, h->wr_ctx);
@@ -127,15 +139,15 @@ size_t mock_io_write_count(void)
 
 const mock_io_write_t *mock_io_write_at(size_t index)
 {
-	if (index >= log_count || index >= MOCK_IO_LOG_SIZE)
+	if (index >= log_count)
 		return NULL;
 	return &log_[index];
 }
 
 size_t mock_io_write_count_for(uintptr_t addr)
 {
-	size_t i, n = 0, limit = log_count < MOCK_IO_LOG_SIZE ? log_count : MOCK_IO_LOG_SIZE;
-	for (i = 0; i < limit; i++)
+	size_t i, n = 0;
+	for (i = 0; i < log_count; i++)
 		if (log_[i].addr == addr)
 			n++;
 	return n;
@@ -143,8 +155,8 @@ size_t mock_io_write_count_for(uintptr_t addr)
 
 uint32_t mock_io_last_write(uintptr_t addr, int *found)
 {
-	size_t i, limit = log_count < MOCK_IO_LOG_SIZE ? log_count : MOCK_IO_LOG_SIZE;
-	for (i = limit; i > 0; i--)
+	size_t i;
+	for (i = log_count; i > 0; i--)
 		if (log_[i - 1].addr == addr)
 		{
 			if (found) *found = 1;
