@@ -44,7 +44,14 @@ Firmware stores DRAM pointers in `unsigned int`, so the host arena must live
 below 4 GiB; `host_memory.c` uses `MAP_32BIT`/a fixed hint to guarantee that.
 This makes the harness **Linux-only**: macOS reserves the whole low 4 GiB
 (`__PAGEZERO`), so every test aborts in `host_memory_init()` there. On a Mac,
-run the suite in a Linux container (e.g. `docker run -v $PWD:/src ubuntu:24.04`).
+run the suite in a Linux container from the repo root:
+
+```sh
+docker run --rm -v "$PWD":/src -w /src/source/software/GreedyFTL-3.0.0/test ubuntu:24.04 \
+  bash -c 'apt-get update && apt-get install -y --no-install-recommends build-essential cmake git ca-certificates lcov \
+           && cmake -S . -B build-linux && cmake --build build-linux --parallel \
+           && ctest --test-dir build-linux --output-on-failure'
+```
 
 ## Writing a test
 
