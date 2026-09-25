@@ -170,7 +170,10 @@ void EvictDataBufEntry(unsigned int originReqSlotTag)
 
 		// no space left on the device: do not issue a NAND write to an invalid address
 		if(virtualSliceAddr == VSA_FAIL)
+		{
+			xil_printf("[WARNING] write dropped: no free slice for logical slice %u [WARNING]\r\n", dataBufMapPtr->dataBuf[dataBufEntry].logicalSliceAddr);
 			return;
+		}
 
 		reqSlotTag = GetFromFreeReqQ();
 		reqPoolPtr->reqPool[reqSlotTag].reqType = REQ_TYPE_NAND;
