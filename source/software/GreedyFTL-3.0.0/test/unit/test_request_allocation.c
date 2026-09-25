@@ -2,9 +2,11 @@
  * request queues (free, slice, blocked-by-buffer-dependency,
  * blocked-by-row-address-dependency, NVMe DMA, NAND).
  *
- * Every test boots the full FTL so the tables reached by the release paths
+ * The FTL is booted once so the tables reached by the release paths
  * (GetFromNandReqQ / SelectiveGetFromNvmeDmaReqQ -> ReleaseBlockedByBufDepReq)
- * are populated, then works directly on the request pool in emulated DRAM. */
+ * are populated; each test then starts from a freshly initialised request pool
+ * and works directly on it in emulated DRAM. */
+#include <string.h>
 #include "unity.h"
 #include "ftl_test_env.h"
 #include "request_allocation.h"
@@ -18,7 +20,22 @@
 #define TEST_CH   1
 #define TEST_WAY  5
 
-void setUp(void) { ftl_test_env_init_ftl(); }
+/* Boot the FTL once (populates the data buffer tables the release paths walk),
+ * then give each test a pristine request pool and host DMA state. */
+void setUp(void)
+{
+	static int isBooted = 0;
+
+	if (!isBooted) {
+		ftl_test_env_init_ftl();
+		isBooted = 1;
+	}
+	InitReqPool();
+	InitDataBuf();
+	memset(&g_hostDmaStatus, 0, sizeof(g_hostDmaStatus));
+	memset(&g_hostDmaAssistStatus, 0, sizeof(g_hostDmaAssistStatus));
+	mock_io_set_read_handler(HOST_DMA_FIFO_CNT_REG_ADDR, ftl_test_dma_fifo_instant_done, NULL);
+}
 void tearDown(void) {}
 
 /* ------------------------------------------------------------------------ */
@@ -272,8 +289,6 @@ static void test_free_queue_exhaustion_spins_until_inflight_dma_completes(void)
 	TEST_ASSERT_EQUAL_UINT(REQ_SLOT_TAG_NONE, nvmeDmaReqQ.headReq);
 	TEST_ASSERT_EQUAL_UINT(0, freeReqQ.reqCnt);
 	TEST_ASSERT_EQUAL_UINT(REQ_QUEUE_TYPE_NONE, req(got)->reqQueueType);
-
-	mock_io_set_read_handler(HOST_DMA_FIFO_CNT_REG_ADDR, ftl_test_dma_fifo_instant_done, NULL);
 }
 
 /* ------------------------------------------------------------------------ */
