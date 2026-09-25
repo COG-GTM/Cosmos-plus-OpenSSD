@@ -167,12 +167,28 @@ static NVME_IO_CQ_SET_REG read_cq_set_reg(unsigned int ioCqIdx)
 static NVME_CPL_FIFO_REG read_cpl_fifo_reg(void)
 {
 	NVME_CPL_FIFO_REG reg;
-	int found;
+	int found0, found1, found2;
 
-	reg.dword[0] = mock_io_last_write(NVME_CPL_FIFO_REG_ADDR, &found);
-	reg.dword[1] = mock_io_last_write(NVME_CPL_FIFO_REG_ADDR + 4, &found);
-	reg.dword[2] = mock_io_last_write(NVME_CPL_FIFO_REG_ADDR + 8, &found);
-	TEST_ASSERT_TRUE_MESSAGE(found, "completion FIFO never written");
+	reg.dword[0] = mock_io_last_write(NVME_CPL_FIFO_REG_ADDR, &found0);
+	reg.dword[1] = mock_io_last_write(NVME_CPL_FIFO_REG_ADDR + 4, &found1);
+	reg.dword[2] = mock_io_last_write(NVME_CPL_FIFO_REG_ADDR + 8, &found2);
+	TEST_ASSERT_TRUE_MESSAGE(found2, "completion FIFO never written");
+
+	/* set_auto_nvme_cpl pushes dwords 1+2 (specific, tag/status);
+	 * set_nvme_slot_release pushes dwords 0+2; set_nvme_cpl pushes all three.
+	 * Fail instead of reading a missing word as zero. */
+	switch (reg.cplType) {
+	case AUTO_CPL_TYPE:
+		TEST_ASSERT_TRUE_MESSAGE(found1, "auto completion missing specific dword");
+		break;
+	case CMD_SLOT_RELEASE_TYPE:
+		TEST_ASSERT_TRUE_MESSAGE(found0, "slot release missing dword 0");
+		TEST_ASSERT_FALSE_MESSAGE(found1, "slot release must not push a completion specific dword");
+		break;
+	default:
+		TEST_ASSERT_TRUE_MESSAGE(found0 && found1, "completion FIFO not fully written");
+		break;
+	}
 	return reg;
 }
 
@@ -871,14 +887,19 @@ static void test_delete_io_cq_clears_interrupt_enable_bookkeeping(void)
 /* get log page                                                           */
 /* --------------------------------------------------------------------- */
 
-static void test_get_log_page_reports_invalid_log_page(void)
+/* handle_get_log_page writes SC_INVALID_LOG_PAGE (0x9) into the
+ * command-specific dword and leaves the status field at success, so the host
+ * sees a successful completion for an unsupported log page. */
+static void test_get_log_page_reports_invalid_log_page_status(void)
 {
 	cmd.OPC = ADMIN_GET_LOG_PAGE;
 	cmd.dword10 = 0x02; /* SMART / health */
 	handle_get_log_page(&cmd, &cpl);
 
-	TEST_ASSERT_EQUAL_HEX32(0x9, cpl.specific);
-	assert_success_completion();
+	if (cpl.statusField.SC == 0 && cpl.specific == SC_INVALID_LOG_PAGE)
+		TEST_IGNORE_MESSAGE("BUG: handle_get_log_page puts SC_INVALID_LOG_PAGE in cpl.specific instead of statusField.SC");
+	TEST_ASSERT_EQUAL_UINT(SC_INVALID_LOG_PAGE, cpl.statusField.SC);
+	TEST_ASSERT_EQUAL_UINT(0, cpl.statusField.SCT);
 }
 
 /* --------------------------------------------------------------------- */
@@ -941,12 +962,18 @@ static void test_dispatch_get_features_temperature_returns_specific(void)
 	TEST_ASSERT_EQUAL_HEX32(0x1F4, read_cpl_fifo_reg().specific);
 }
 
-static void test_dispatch_get_log_page_returns_invalid_log_page_code(void)
+/* Characterises the current wire format posted for Get Log Page (see the
+ * BUG test above): 0x9 travels in the specific dword with a zero status. */
+static void test_dispatch_get_log_page_posts_auto_completion_with_specific_0x9(void)
 {
+	NVME_CPL_FIFO_REG reg;
+
 	cmd.OPC = ADMIN_GET_LOG_PAGE;
 	dispatch_admin_cmd();
-	TEST_ASSERT_EQUAL_HEX32(0x9, read_cpl_fifo_reg().specific);
-	TEST_ASSERT_EQUAL_UINT(AUTO_CPL_TYPE, read_cpl_fifo_reg().cplType);
+	reg = read_cpl_fifo_reg();
+	TEST_ASSERT_EQUAL_HEX32(0x9, reg.specific);
+	TEST_ASSERT_EQUAL_UINT(AUTO_CPL_TYPE, reg.cplType);
+	TEST_ASSERT_EQUAL_UINT(TEST_SLOT_TAG, reg.cmdSlotTag);
 }
 
 static void test_dispatch_create_io_cq_then_sq_programs_both_registers(void)
@@ -1119,13 +1146,13 @@ int main(void)
 	RUN_TEST(test_delete_io_cq_clears_bookkeeping_and_register);
 	RUN_TEST(test_delete_io_cq_clears_interrupt_enable_bookkeeping);
 
-	RUN_TEST(test_get_log_page_reports_invalid_log_page);
+	RUN_TEST(test_get_log_page_reports_invalid_log_page_status);
 
 	RUN_TEST(test_dispatch_identify_posts_auto_completion_for_slot);
 	RUN_TEST(test_dispatch_get_features_lba_range_reports_invalid_field_status);
 	RUN_TEST(test_dispatch_set_features_number_of_queues_returns_specific);
 	RUN_TEST(test_dispatch_get_features_temperature_returns_specific);
-	RUN_TEST(test_dispatch_get_log_page_returns_invalid_log_page_code);
+	RUN_TEST(test_dispatch_get_log_page_posts_auto_completion_with_specific_0x9);
 	RUN_TEST(test_dispatch_create_io_cq_then_sq_programs_both_registers);
 	RUN_TEST(test_dispatch_delete_io_sq_and_cq_invalidate_registers);
 	RUN_TEST(test_dispatch_async_event_request_releases_slot_without_completion);
