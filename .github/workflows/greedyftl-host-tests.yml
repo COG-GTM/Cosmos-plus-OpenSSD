@@ -1,0 +1,75 @@
+name: GreedyFTL-3.0.0 host tests
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - 'source/software/GreedyFTL-3.0.0/**'
+      - '.github/workflows/greedyftl-host-tests.yml'
+  pull_request:
+    paths:
+      - 'source/software/GreedyFTL-3.0.0/**'
+      - '.github/workflows/greedyftl-host-tests.yml'
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: source/software/GreedyFTL-3.0.0/test
+
+jobs:
+  host-tests:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends cmake gcc lcov
+
+      - name: Cache Unity checkout
+        uses: actions/cache@v4
+        with:
+          path: source/software/GreedyFTL-3.0.0/test/build/_deps
+          key: unity-v2.6.0
+
+      - name: Configure
+        run: cmake -S . -B build
+
+      - name: Build
+        run: cmake --build build -j"$(nproc)"
+
+      - name: Run tests
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Coverage report
+        run: cmake --build build --target coverage-html
+
+      - name: Publish coverage to job summary
+        if: always()
+        run: |
+          SUMMARY=build/coverage/summary.txt
+          if [ ! -f "$SUMMARY" ]; then
+            echo "## GreedyFTL-3.0.0 host tests" >> "$GITHUB_STEP_SUMMARY"
+            echo "Coverage summary not produced (build or tests failed)." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          LINE=$(grep -E '^\s*lines' "$SUMMARY" | sed -E 's/^\s*lines\.*: //')
+          {
+            echo "## GreedyFTL-3.0.0 host tests"
+            echo
+            echo "**Total line coverage: ${LINE}**"
+            echo
+            echo '```'
+            lcov --list build/coverage/firmware.info 2>/dev/null | grep -v 'redefined at' || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload HTML coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: greedyftl-coverage-html
+          path: source/software/GreedyFTL-3.0.0/test/build/coverage/html
+          if-no-files-found: ignore
