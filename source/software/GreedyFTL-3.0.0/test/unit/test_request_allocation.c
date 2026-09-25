@@ -11,6 +11,8 @@
 #include "request_transform.h"
 #include "request_schedule.h"
 #include "data_buffer.h"
+#include "mock_io.h"
+#include "nvme/host_lld.h"
 
 #define POOL_SIZE AVAILABLE_OUNTSTANDING_REQ_COUNT
 #define TEST_CH   1
@@ -215,33 +217,63 @@ static void test_free_queue_drains_to_empty_and_refills_from_empty(void)
 	assert_free_queue_consistent();
 }
 
-/* Exhaustion: with the pool empty, GetFromFreeReqQ() must block in
- * SyncAvailFreeReq() until an outstanding request completes. A TxDMA request
- * sitting in the NVMe DMA queue completes immediately against the mocked host
- * DMA FIFO, so the spin returns that exact slot. */
-static void test_free_queue_exhaustion_waits_for_completed_dma_request(void)
+/* Host DMA FIFO count register model for an in-flight TxDMA: the hardware
+ * head stays behind the software tail for the first `pendingPolls` reads,
+ * then catches up (DMA complete). */
+struct dma_fifo_model {
+	unsigned int pendingPolls;
+	unsigned int polls;
+};
+
+static uint32_t dma_fifo_pending_then_done(uintptr_t addr, uint32_t stored, void *ctx)
 {
+	struct dma_fifo_model *model = ctx;
+	HOST_DMA_FIFO_CNT_REG head;
+
+	(void)addr; (void)stored;
+	model->polls++;
+	if (model->polls <= model->pendingPolls) {
+		head.dword = g_hostDmaStatus.fifoTail.dword;
+		head.autoDmaTx = 0;
+		return head.dword;
+	}
+	return g_hostDmaStatus.fifoTail.dword;
+}
+
+/* Exhaustion: with the pool empty, GetFromFreeReqQ() must spin in
+ * SyncAvailFreeReq() until an outstanding request completes. A TxDMA request
+ * is issued (software FIFO tail advanced) and parked on the NVMe DMA queue;
+ * the FIFO model keeps it pending for several polls, so the spin must iterate
+ * and then hand back exactly that slot. */
+static void test_free_queue_exhaustion_spins_until_inflight_dma_completes(void)
+{
+	struct dma_fifo_model model = { .pendingPolls = 3, .polls = 0 };
 	unsigned int dmaTag, got;
 
 	drain_free_queue();
-	dmaTag = freeReqQ.headReq; /* NONE */
-	TEST_ASSERT_EQUAL_UINT(REQ_SLOT_TAG_NONE, dmaTag);
+	TEST_ASSERT_EQUAL_UINT(REQ_SLOT_TAG_NONE, freeReqQ.headReq);
+
+	g_hostDmaStatus.fifoTail.autoDmaTx = 1;
+	mock_io_set_read_handler(HOST_DMA_FIFO_CNT_REG_ADDR, dma_fifo_pending_then_done, &model);
 
 	dmaTag = 7;
 	req(dmaTag)->reqType = REQ_TYPE_NVME_DMA;
 	req(dmaTag)->reqCode = REQ_CODE_TxDMA;
-	req(dmaTag)->nvmeDmaInfo.reqTail = 0;
-	req(dmaTag)->nvmeDmaInfo.overFlowCnt = 0;
+	req(dmaTag)->nvmeDmaInfo.reqTail = g_hostDmaStatus.fifoTail.autoDmaTx;
+	req(dmaTag)->nvmeDmaInfo.overFlowCnt = g_hostDmaAssistStatus.autoDmaTxOverFlowCnt;
 	PutToNvmeDmaReqQ(dmaTag);
 	TEST_ASSERT_EQUAL_UINT(1, nvmeDmaReqQ.reqCnt);
 
 	got = GetFromFreeReqQ();
 
 	TEST_ASSERT_EQUAL_UINT(dmaTag, got);
+	TEST_ASSERT_EQUAL_UINT(model.pendingPolls + 1, model.polls);
 	TEST_ASSERT_EQUAL_UINT(0, nvmeDmaReqQ.reqCnt);
 	TEST_ASSERT_EQUAL_UINT(REQ_SLOT_TAG_NONE, nvmeDmaReqQ.headReq);
 	TEST_ASSERT_EQUAL_UINT(0, freeReqQ.reqCnt);
 	TEST_ASSERT_EQUAL_UINT(REQ_QUEUE_TYPE_NONE, req(got)->reqQueueType);
+
+	mock_io_set_read_handler(HOST_DMA_FIFO_CNT_REG_ADDR, ftl_test_dma_fifo_instant_done, NULL);
 }
 
 /* ------------------------------------------------------------------------ */
@@ -672,7 +704,7 @@ int main(void)
 	RUN_TEST(test_free_queue_hands_out_slots_from_head_in_order);
 	RUN_TEST(test_free_queue_put_appends_at_tail);
 	RUN_TEST(test_free_queue_drains_to_empty_and_refills_from_empty);
-	RUN_TEST(test_free_queue_exhaustion_waits_for_completed_dma_request);
+	RUN_TEST(test_free_queue_exhaustion_spins_until_inflight_dma_completes);
 	RUN_TEST(test_slice_queue_get_on_empty_returns_fail);
 	RUN_TEST(test_slice_queue_is_fifo_and_tracks_links);
 	RUN_TEST(test_buf_dep_queue_put_counts_blocked_requests);
