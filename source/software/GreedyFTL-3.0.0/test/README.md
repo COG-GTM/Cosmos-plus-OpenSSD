@@ -83,6 +83,8 @@ test/
   same writes via a hook and complete requests synchronously, so no polling loop
   in `request_schedule.c` or `host_lld.c` can hang.
 * **NAND.** Programmed rows are stored sparsely; erased rows read back as `0xFF`.
+  Programming an already-programmed row without an erase aborts the test (real NAND
+  cannot do this), so erase-before-program mistakes are caught.
   `FakeNandMarkBadBlock()` makes program/erase of a block fail (grown bad block path);
   `FakeNandInjectReadFailure()` returns an uncorrectable ECC status for one read.
 * **No interrupts / timers.** `XScuGic` and `XTime` are inert stubs.

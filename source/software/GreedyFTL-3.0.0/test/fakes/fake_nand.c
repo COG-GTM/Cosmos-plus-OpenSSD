@@ -142,21 +142,24 @@ int FakeNandProgramRow(unsigned int ch, unsigned int way, unsigned int rowAddr, 
 	if (FakeNandIsBadBlock(ch, way, FakeNandRowToPhyBlock(rowAddr)))
 		return 1;
 
-	p = FindPage(die, rowAddr);
+	if (FindPage(die, rowAddr))
+	{
+		fprintf(stderr, "fake_nand: program of already-programmed row 0x%08x (ch %u way %u) without erase\n",
+		        rowAddr, ch, way);
+		abort();
+	}
+
+	p = (FakeNandPage *)malloc(sizeof(FakeNandPage));
 	if (!p)
 	{
-		p = (FakeNandPage *)malloc(sizeof(FakeNandPage));
-		if (!p)
-		{
-			fprintf(stderr, "fake_nand: out of memory\n");
-			abort();
-		}
-		p->die = die;
-		p->rowAddr = rowAddr;
-		p->next = buckets[Bucket(die, rowAddr)];
-		buckets[Bucket(die, rowAddr)] = p;
-		programmedPages++;
+		fprintf(stderr, "fake_nand: out of memory\n");
+		abort();
 	}
+	p->die = die;
+	p->rowAddr = rowAddr;
+	p->next = buckets[Bucket(die, rowAddr)];
+	buckets[Bucket(die, rowAddr)] = p;
+	programmedPages++;
 	memcpy(p->row, row, FAKE_NAND_ROW_BYTES);
 	return 0;
 }
