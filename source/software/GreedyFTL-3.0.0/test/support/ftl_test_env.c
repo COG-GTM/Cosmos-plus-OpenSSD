@@ -20,6 +20,7 @@ jmp_buf ftl_test_assert_jmp;
 volatile int ftl_test_assert_armed;
 volatile int ftl_test_assert_hit;
 const char *ftl_test_last_assert_expr;
+volatile int ftl_test_escape_hit;
 
 void ftl_test_assert_failed(const char *expr, const char *file, int line)
 {
@@ -30,6 +31,17 @@ void ftl_test_assert_failed(const char *expr, const char *file, int line)
 		longjmp(ftl_test_assert_jmp, 1);
 	}
 	fprintf(stderr, "\nfirmware assertion failed: %s (%s:%d)\n", expr, file, line);
+	abort();
+}
+
+void ftl_test_env_escape(void)
+{
+	if (ftl_test_assert_armed)
+	{
+		ftl_test_escape_hit = 1;
+		longjmp(ftl_test_assert_jmp, 1);
+	}
+	fprintf(stderr, "\nftl_test_env_escape() called outside FTL_TEST_RUN_UNTIL_ESCAPE\n");
 	abort();
 }
 
@@ -69,7 +81,9 @@ void ftl_test_env_reset(void)
 	memset(&g_hostDmaAssistStatus, 0, sizeof(g_hostDmaAssistStatus));
 	mock_io_set_read_handler(HOST_DMA_FIFO_CNT_REG_ADDR, ftl_test_dma_fifo_instant_done, NULL);
 	ftl_test_queue_inbyte(NULL);
+	ftl_test_set_printf_hook(NULL, NULL);
 	ftl_test_printf_count = 0;
+	ftl_test_escape_hit = 0;
 	ftl_test_assert_armed = 0;
 	ftl_test_assert_hit = 0;
 }
