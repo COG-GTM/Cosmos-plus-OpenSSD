@@ -67,6 +67,32 @@ extern const char *ftl_test_last_assert_expr;
 		TEST_ASSERT_TRUE_MESSAGE(ftl_test_assert_hit, "expected a firmware assert()"); \
 	} while (0)
 
+/* Loop escape for firmware functions that never return (nvme_main()).
+ *
+ *   FTL_TEST_RUN_UNTIL_ESCAPE(nvme_main());
+ *
+ * runs the statement until a mock handler or printf hook calls
+ * ftl_test_env_escape(), which unwinds back into the test. The test fails if
+ * the statement returns or a firmware assert fires first. */
+extern volatile int ftl_test_escape_hit;
+void ftl_test_env_escape(void);
+
+#define FTL_TEST_RUN_UNTIL_ESCAPE(stmt)                                          \
+	do {                                                                          \
+		ftl_test_escape_hit = 0;                                                  \
+		ftl_test_assert_hit = 0;                                                  \
+		ftl_test_assert_armed = 1;                                                \
+		if (setjmp(ftl_test_assert_jmp) == 0) { stmt; }                           \
+		ftl_test_assert_armed = 0;                                                \
+		TEST_ASSERT_FALSE_MESSAGE(ftl_test_assert_hit, "unexpected firmware assert()"); \
+		TEST_ASSERT_TRUE_MESSAGE(ftl_test_escape_hit, "firmware loop was not escaped"); \
+	} while (0)
+
+/* Observe firmware xil_printf() calls: the hook receives the format string
+ * before any output filtering. Cleared by ftl_test_env_reset(). */
+typedef void (*ftl_test_printf_hook_t)(const char *fmt, void *ctx);
+void ftl_test_set_printf_hook(ftl_test_printf_hook_t hook, void *ctx);
+
 /* Default read handler installed on HOST_DMA_FIFO_CNT_REG_ADDR: reports the
  * hardware FIFO head equal to the software tail so every DMA completes
  * immediately. Tests wanting to model in-flight DMA replace it. */

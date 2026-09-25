@@ -11,6 +11,14 @@ static int quiet = -1;
 static XTime fake_time;
 static char inbyte_queue[64];
 static size_t inbyte_head, inbyte_len;
+static ftl_test_printf_hook_t printf_hook;
+static void *printf_hook_ctx;
+
+void ftl_test_set_printf_hook(ftl_test_printf_hook_t hook, void *ctx)
+{
+	printf_hook = hook;
+	printf_hook_ctx = ctx;
+}
 
 void ftl_test_queue_inbyte(const char *bytes)
 {
@@ -48,6 +56,8 @@ void xil_printf(const char *fmt, ...)
 {
 	va_list ap;
 	ftl_test_printf_count++;
+	if (printf_hook)
+		printf_hook(fmt, printf_hook_ctx);
 	if (is_quiet())
 		return;
 	va_start(ap, fmt);

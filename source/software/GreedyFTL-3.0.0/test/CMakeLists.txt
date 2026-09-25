@@ -137,6 +137,7 @@ add_ftl_test(test_request_schedule)
 add_ftl_test(test_request_transform)
 add_ftl_test(test_nvme_admin)
 add_ftl_test(test_nvme_io)
+add_ftl_test(test_nvme_main)
 add_ftl_test(test_harness)
 
 # ---------------------------------------------------------------------------
@@ -171,7 +172,7 @@ if(FTL_TEST_COVERAGE)
     COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target coverage-html
     DEPENDS test_address_translation test_data_buffer test_garbage_collection
             test_request_allocation test_request_schedule test_request_transform
-            test_nvme_admin test_nvme_io test_harness
+            test_nvme_admin test_nvme_io test_nvme_main test_harness
     USES_TERMINAL
     COMMENT "Running tests and producing coverage report")
 endif()
