@@ -1,0 +1,56 @@
+name: GreedyFTL host tests
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+env:
+  TEST_DIR: source/software/GreedyFTL-3.0.0/test
+
+jobs:
+  host-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends cmake gcc lcov
+          gcc --version && cmake --version && lcov --version
+
+      - name: Cache FetchContent (Unity)
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.TEST_DIR }}/build/_deps
+          key: unity-${{ hashFiles('source/software/GreedyFTL-3.0.0/test/CMakeLists.txt') }}
+
+      - name: Configure
+        run: cmake -S "$TEST_DIR" -B "$TEST_DIR/build" -DCMAKE_BUILD_TYPE=Debug -DFTL_COVERAGE=ON
+
+      - name: Build
+        run: cmake --build "$TEST_DIR/build" --parallel
+
+      - name: Test
+        run: ctest --test-dir "$TEST_DIR/build" --output-on-failure
+
+      - name: Coverage (lcov + genhtml)
+        run: |
+          cmake --build "$TEST_DIR/build" --target coverage | tee coverage.log
+          {
+            echo "## GreedyFTL-3.0.0 host test coverage"
+            echo
+            echo '```'
+            sed -n '/^Filename/,/^ *Total:/p' coverage.log
+            echo
+            lcov --summary "$TEST_DIR/build/coverage/coverage.info" 2>/dev/null | grep -E 'lines|functions'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload HTML coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: greedyftl-coverage-html
+          path: ${{ env.TEST_DIR }}/build/coverage/html
+          if-no-files-found: error

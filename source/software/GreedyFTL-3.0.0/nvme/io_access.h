@@ -48,7 +48,15 @@
 #ifndef __IO_ACCESS_H_
 #define __IO_ACCESS_H_
 
-#define IO_WRITE32(addr, val)		*((volatile unsigned int *)(addr)) = val
-#define IO_READ32(addr)				*((volatile unsigned int *)(addr))
+#ifdef HOST_TEST
+// Host unit-test build: register accesses go to the in-memory fake register map
+// (test/stubs/fake_regs.h) so tests can observe and inject register values.
+#include "fake_regs.h"
+#define IO_WRITE32(addr, val) FakeRegWrite32((addr), (val))
+#define IO_READ32(addr) FakeRegRead32((addr))
+#else
+#define IO_WRITE32(addr, val) *((volatile unsigned int *)(addr)) = val
+#define IO_READ32(addr) *((volatile unsigned int *)(addr))
+#endif
 
 #endif	//__IO_ACCESS_H_
