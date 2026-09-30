@@ -8,6 +8,7 @@
 #define REG_TABLE_SIZE			16384	/* power of two; covers the 2048-dword command SRAM plus control registers */
 #define WRITE_JOURNAL_SIZE		65536
 #define DMA_JOURNAL_SIZE		8192
+#define CMD_FIFO_DEPTH			256
 
 typedef struct
 {
@@ -23,6 +24,10 @@ static FAKE_DMA_DESCRIPTOR dmaJournal[DMA_JOURNAL_SIZE];
 static unsigned int dmaCount;
 static unsigned int dmaStaging[4];
 static unsigned int completionCount;
+static unsigned int slotReleaseCount;
+static unsigned int cmdFifo[CMD_FIFO_DEPTH];
+static unsigned int cmdFifoHead;
+static unsigned int cmdFifoCount;
 
 static REG_SLOT *lookup(unsigned int addr, int create)
 {
@@ -55,16 +60,29 @@ void fake_regs_reset(void)
 	writeCount = 0;
 	dmaCount = 0;
 	completionCount = 0;
+	slotReleaseCount = 0;
+	cmdFifoHead = 0;
+	cmdFifoCount = 0;
 }
 
 unsigned int fake_reg_read32(unsigned int addr)
 {
-	REG_SLOT *slot = lookup(addr, 0);
-	unsigned int value = slot ? slot->value : 0;
+	REG_SLOT *slot;
+	unsigned int value;
 
-	/* The command FIFO register pops one entry per read. */
-	if (addr == NVME_CMD_FIFO_REG_ADDR && slot)
-		slot->value = 0;
+	/* The command FIFO register pops one entry per read; an empty FIFO reads as cmdValid == 0. */
+	if (addr == NVME_CMD_FIFO_REG_ADDR)
+	{
+		if (cmdFifoCount == 0)
+			return 0;
+		value = cmdFifo[cmdFifoHead];
+		cmdFifoHead = (cmdFifoHead + 1) % CMD_FIFO_DEPTH;
+		cmdFifoCount--;
+		return value;
+	}
+
+	slot = lookup(addr, 0);
+	value = slot ? slot->value : 0;
 	return value;
 }
 
@@ -132,7 +150,15 @@ void fake_reg_write32(unsigned int addr, unsigned int value)
 			completeDma();
 	}
 	else if (addr == NVME_CPL_FIFO_REG_ADDR + 8)
-		completionCount++;
+	{
+		NVME_CPL_FIFO_REG cpl;
+
+		cpl.dword[2] = value;
+		if (cpl.cplType == CMD_SLOT_RELEASE_TYPE)
+			slotReleaseCount++;
+		else
+			completionCount++;
+	}
 }
 
 unsigned int fake_reg_write_count(void)
@@ -192,6 +218,11 @@ unsigned int fake_nvme_completion_count(void)
 	return completionCount;
 }
 
+unsigned int fake_nvme_slot_release_count(void)
+{
+	return slotReleaseCount;
+}
+
 void fake_nvme_push_command(unsigned int qID, unsigned int cmdSlotTag, unsigned int cmdSeqNum, const unsigned int cmdDword[16])
 {
 	NVME_CMD_FIFO_REG fifo;
@@ -205,5 +236,7 @@ void fake_nvme_push_command(unsigned int qID, unsigned int cmdSlotTag, unsigned 
 	fifo.cmdSlotTag = cmdSlotTag;
 	fifo.cmdSeqNum = cmdSeqNum;
 	fifo.cmdValid = 1;
-	fake_reg_poke(NVME_CMD_FIFO_REG_ADDR, fifo.dword);
+	assert(cmdFifoCount < CMD_FIFO_DEPTH);
+	cmdFifo[(cmdFifoHead + cmdFifoCount) % CMD_FIFO_DEPTH] = fifo.dword;
+	cmdFifoCount++;
 }

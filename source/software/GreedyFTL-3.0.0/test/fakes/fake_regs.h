@@ -47,6 +47,7 @@ const FAKE_DMA_DESCRIPTOR *fake_dma_descriptor_at(unsigned int index);
 
 /* Number of NVMe completions written to NVME_CPL_FIFO_REG_ADDR + 8 (the last dword of a completion). */
 unsigned int fake_nvme_completion_count(void);
+unsigned int fake_nvme_slot_release_count(void);
 
 /* Load a 16-dword NVMe command into the command SRAM and mark the command FIFO valid. */
 void fake_nvme_push_command(unsigned int qID, unsigned int cmdSlotTag, unsigned int cmdSeqNum, const unsigned int cmdDword[16]);
