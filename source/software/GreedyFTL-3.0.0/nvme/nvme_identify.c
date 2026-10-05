@@ -56,13 +56,18 @@
 #include "nvme.h"
 #include "nvme_identify.h"
 #include "../ftl_config.h"
+#ifdef HOST_TEST
+#include "../memory_map.h"
+#else
+#define FW_DRAM_PTR(addr) addr
+#endif
 
 void identify_controller(unsigned int pBuffer)
 {
 	ADMIN_IDENTIFY_CONTROLLER *identifyCNTL;
 	ADMIN_IDENTIFY_POWER_STATE_DESCRIPTOR *powerStateDesc;
 	
-	identifyCNTL = (ADMIN_IDENTIFY_CONTROLLER*)pBuffer;
+	identifyCNTL = (ADMIN_IDENTIFY_CONTROLLER*)FW_DRAM_PTR(pBuffer);
 
 	memset(identifyCNTL, 0, sizeof(ADMIN_IDENTIFY_CONTROLLER));
 
@@ -149,7 +154,7 @@ void identify_namespace(unsigned int pBuffer)
 {
 	ADMIN_IDENTIFY_NAMESPACE *identifyNS;
 	ADMIN_IDENTIFY_FORMAT_DATA *formatData;
-	identifyNS = (ADMIN_IDENTIFY_NAMESPACE *)pBuffer;
+	identifyNS = (ADMIN_IDENTIFY_NAMESPACE *)FW_DRAM_PTR(pBuffer);
 
 	memset(identifyNS, 0, sizeof(ADMIN_IDENTIFY_NAMESPACE));
 

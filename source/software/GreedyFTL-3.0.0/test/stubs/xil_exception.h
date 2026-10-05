@@ -1,0 +1,3 @@
+#ifndef HOST_TEST_XIL_EXCEPTION_H
+#define HOST_TEST_XIL_EXCEPTION_H
+#endif
