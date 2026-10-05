@@ -1,47 +1,45 @@
 # GreedyFTL host tests
 
-## Prerequisites and commands
+Host-side unit tests for the GreedyFTL-3.0.0 firmware. The real FTL sources are
+compiled with `-DHOST_TEST` against fakes for DRAM, MMIO registers, NAND and
+host DMA, so they run on Linux or macOS with no Cosmos+ board.
 
-Install GCC, CMake, Python 3, lcov, and genhtml. Unity v2.6.0 is fetched by CMake.
-On Linux:
+## Run
 
-```sh
-cmake -S test -B test/build
-cmake --build test/build -j
-(cd test/build && ctest --output-on-failure)
-cmake --build test/build --target coverage
-```
-
-On macOS with Homebrew GCC 16 and gcov 16:
+From the repository root (Linux, GCC + lcov):
 
 ```sh
-cmake -S test -B test/build -DCMAKE_C_COMPILER=gcc-16 -DGCOV_TOOL=gcov-16
-cmake --build test/build -j
-(cd test/build && ctest --output-on-failure)
-cmake --build test/build --target coverage
+cmake -S source/software/GreedyFTL-3.0.0/test -B /tmp/greedyftl-build
+cmake --build /tmp/greedyftl-build -j
+ctest --test-dir /tmp/greedyftl-build --output-on-failure
+cmake --build /tmp/greedyftl-build --target coverage
 ```
 
-`test/build/coverage/html` contains the HTML report, `summary.txt` the lcov
-summary, and `per_file.md` the line-hit table. Use
-`-DGREEDYFTL_RUN_KNOWN_BUGS=ON` in a separate build directory to run opt-in bug
-assertions.
-Set `HOST_TEST_TIMING=1` when invoking a test executable to print each
-`InitFTL()` fixture-call duration.
+On macOS, use Homebrew GCC so gcov data matches lcov:
+`-DCMAKE_C_COMPILER=gcc-16 -DGCOV_TOOL=gcov-16`.
 
-The fake DRAM arena is a 4-GiB-aligned address range, with the lower 1 GiB
-committed for firmware tables and data. Fake NAND stores sparse programmed
-pages and factory-bad marks; fake DMA completes immediately and the register
-map records accesses. The fixture initializes the real FTL state and leaves
-flash contents intact between tests unless a test resets fake NAND.
-The host-only preincluded `host_memory_map_limits.h` adjusts the firmware's
-DRAM end bound to the aligned arena so its address-range assertion compares
-like address spaces.
+Unity v2.6.0 is downloaded as a SHA-256-pinned tarball (no git clone needed).
+The `coverage` target writes `coverage/summary.txt`, `coverage/per_file.md`
+and `coverage/html/` under the build directory.
 
-Host-only firmware adaptations are restricted to `memory_map.h` (the three
-DRAM bases and host pointer helpers), the DRAM-offset dereferences in
-`address_translation.c`, `request_schedule.c`, and `nvme/nvme_identify.c`, and
-the `HOST_TEST` register-access branch in `nvme/io_access.h`. Target code
-continues to preprocess to its original behavior. `main.c` and
-`nvme/nvme_main.c` are excluded because they own board initialization and
-infinite main loops. `nsc_driver.c` is excluded because it performs
-non-portable 32-bit MMIO pointer casts; its API is replaced by `fake_nand.c`.
+## Known bugs
+
+Tests that document real firmware bugs call `KNOWN_BUG(...)` and are reported
+as IGNORED by default. Run them with
+`-DGREEDYFTL_RUN_KNOWN_BUGS=ON -DENABLE_COVERAGE=OFF` in a separate build
+directory; they are expected to fail (some abort or crash, by design).
+
+## Layout
+
+- `stubs/` - Xilinx BSP headers and host-only headers (`host_dram.h`,
+  `host_reg_map.h`, `fake_nand.h`, `fake_host_dma.h`).
+- `fakes/` - fake DRAM arena, register map, NAND controller (replaces
+  `nsc_driver.c`), host DMA engine, BSP functions.
+- `unit/` - one executable per firmware area plus `ftl_fixture.c`, which runs
+  the real `InitFTL()`.
+
+`main.c`, `nvme/nvme_main.c` (board init / infinite loops) and `nsc_driver.c`
+(32-bit MMIO casts) are not compiled. Host-only firmware edits are limited to
+`HOST_TEST` branches in `memory_map.h` and `nvme/io_access.h`, and
+`FW_DRAM_PTR()` wrappers in `address_translation.c`, `request_schedule.c` and
+`nvme/nvme_identify.c`; target builds preprocess to the original code.

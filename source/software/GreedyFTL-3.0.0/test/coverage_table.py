@@ -1,3 +1,4 @@
+import os
 import pathlib
 import sys
 
@@ -17,7 +18,9 @@ for line in source:
 if current is not None:
     records.append((current, hit, total))
 
+root = os.path.commonpath([name for name, _, _ in records]) if len(records) > 1 else ""
 output = ["| File | Lines hit / total | Coverage |", "|---|---:|---:|"]
 for name, hit, total in records:
-    output.append(f"| `{name}` | {hit} / {total} | {100 * hit / total if total else 0:.1f}% |")
+    label = os.path.relpath(name, root) if root else os.path.basename(name)
+    output.append(f"| `{label}` | {hit} / {total} | {100 * hit / total if total else 0:.1f}% |")
 pathlib.Path(sys.argv[2]).write_text("\n".join(output) + "\n")
