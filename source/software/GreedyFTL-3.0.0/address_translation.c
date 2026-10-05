@@ -337,8 +337,8 @@ void FindBadBlock(unsigned char dieState[], unsigned int tempBbtBufAddr[], unsig
 		for(dieNo=0; dieNo < USER_DIES; dieNo++)
 			if(!dieState[dieNo])
 			{
-				markPointer0 = (unsigned char*)(tempReadBufAddr[dieNo] + BAD_BLOCK_MARK_BYTE0);
-				markPointer1 = (unsigned char*)(tempReadBufAddr[dieNo] + BAD_BLOCK_MARK_BYTE1);
+				markPointer0 = (unsigned char*)FW_DRAM_PTR(tempReadBufAddr[dieNo] + BAD_BLOCK_MARK_BYTE0);
+				markPointer1 = (unsigned char*)FW_DRAM_PTR(tempReadBufAddr[dieNo] + BAD_BLOCK_MARK_BYTE1);
 
 				if((*markPointer0 == CLEAN_DATA_IN_BYTE) && (*markPointer1 == CLEAN_DATA_IN_BYTE))
 				{
@@ -375,8 +375,8 @@ void FindBadBlock(unsigned char dieState[], unsigned int tempBbtBufAddr[], unsig
 		for(dieNo=0; dieNo < USER_DIES; dieNo++)
 			if(!dieState[dieNo])
 			{
-				markPointer0 = (unsigned char*)(tempReadBufAddr[dieNo] + BAD_BLOCK_MARK_BYTE0);
-				markPointer1 = (unsigned char*)(tempReadBufAddr[dieNo] + BAD_BLOCK_MARK_BYTE1);
+				markPointer0 = (unsigned char*)FW_DRAM_PTR(tempReadBufAddr[dieNo] + BAD_BLOCK_MARK_BYTE0);
+				markPointer1 = (unsigned char*)FW_DRAM_PTR(tempReadBufAddr[dieNo] + BAD_BLOCK_MARK_BYTE1);
 
 				if(!((*markPointer0 == CLEAN_DATA_IN_BYTE) && (*markPointer1 == CLEAN_DATA_IN_BYTE)))
 					if(blockChecker[dieNo] == BLOCK_STATE_NORMAL)
@@ -387,7 +387,7 @@ void FindBadBlock(unsigned char dieState[], unsigned int tempBbtBufAddr[], unsig
 
 					}
 
-				bbtUpdater= (unsigned char*)(tempBbtBufAddr[dieNo] + phyBlockNo);
+				bbtUpdater= (unsigned char*)FW_DRAM_PTR(tempBbtBufAddr[dieNo] + phyBlockNo);
 				*bbtUpdater = blockChecker[dieNo];
 				phyBlockMapPtr->phyBlock[dieNo][phyBlockNo].bad = blockChecker[dieNo];
 			}
@@ -489,7 +489,7 @@ void RecoverBadBlockTable(unsigned int tempBufAddr)
 	bbtMaker = BAD_BLOCK_TABLE_MAKER_IDLE;
 	for(dieNo=0; dieNo<USER_DIES; dieNo++)
 	{
-		bbtTableChecker = (unsigned char*)(tempBbtBufAddr[dieNo]);
+		bbtTableChecker = (unsigned char*)FW_DRAM_PTR(tempBbtBufAddr[dieNo]);
 
 		if((*bbtTableChecker == BLOCK_STATE_NORMAL)||(*bbtTableChecker == BLOCK_STATE_BAD))
 		{
@@ -498,7 +498,7 @@ void RecoverBadBlockTable(unsigned int tempBufAddr)
 			dieState[dieNo] = DIE_STATE_BAD_BLOCK_TABLE_EXIST;
 			for(phyBlockNo=0; phyBlockNo<TOTAL_BLOCKS_PER_DIE; phyBlockNo++)
 			{
-				bbtTableChecker = (unsigned char*)(tempBbtBufAddr[dieNo] + phyBlockNo);
+				bbtTableChecker = (unsigned char*)FW_DRAM_PTR(tempBbtBufAddr[dieNo] + phyBlockNo);
 
 				phyBlockMapPtr->phyBlock[dieNo][phyBlockNo].bad = *bbtTableChecker;
 				if(phyBlockMapPtr->phyBlock[dieNo][phyBlockNo].bad == BLOCK_STATE_BAD)
@@ -897,7 +897,7 @@ void UpdateBadBlockTableForGrownBadBlock(unsigned int tempBufAddr)
 		{
 			for(phyBlockNo = 0; phyBlockNo < TOTAL_BLOCKS_PER_DIE; phyBlockNo++)
 			{
-				bbtUpdater = (unsigned char*)(tempBbtBufAddr[dieNo] + phyBlockNo);
+				bbtUpdater = (unsigned char*)FW_DRAM_PTR(tempBbtBufAddr[dieNo] + phyBlockNo);
 
 				if(phyBlockNo != bbtInfoMapPtr->bbtInfo[dieNo].phyBlock)
 					*bbtUpdater = phyBlockMapPtr->phyBlock[dieNo][phyBlockNo].bad;

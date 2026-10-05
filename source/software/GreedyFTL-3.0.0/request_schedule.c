@@ -940,7 +940,7 @@ void ExecuteNandReq(unsigned int chNo, unsigned int wayNo, unsigned int reqStatu
 					if(reqPoolPtr->reqPool[reqSlotTag].reqOpt.dataBufFormat == REQ_OPT_DATA_BUF_ADDR)
 					{
 						//Request fail in the bad block detection process
-						badCheck = (unsigned char*)reqPoolPtr->reqPool[reqSlotTag].dataBufInfo.addr;
+						badCheck = (unsigned char*)FW_DRAM_PTR(reqPoolPtr->reqPool[reqSlotTag].dataBufInfo.addr);
 						*badCheck = PSEUDO_BAD_BLOCK_MARK;
 					}
 

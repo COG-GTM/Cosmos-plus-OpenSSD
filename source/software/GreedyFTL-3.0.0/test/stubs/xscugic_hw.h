@@ -1,0 +1,3 @@
+#ifndef HOST_TEST_XSCUGIC_HW_H
+#define HOST_TEST_XSCUGIC_HW_H
+#endif
