@@ -59,7 +59,7 @@
 #ifdef HOST_TEST
 #include "../memory_map.h"
 #else
-#define FW_DRAM_PTR(addr) addr
+#define FW_DRAM_PTR(addr) (addr)
 #endif
 
 void identify_controller(unsigned int pBuffer)
@@ -200,4 +200,3 @@ void identify_namespace(unsigned int pBuffer)
 	formatData->LBADS = 0xC;
 	formatData->RP = 0x2;
 }
-
