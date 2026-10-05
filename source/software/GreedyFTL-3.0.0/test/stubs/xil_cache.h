@@ -1,0 +1,3 @@
+#ifndef HOST_TEST_XIL_CACHE_H
+#define HOST_TEST_XIL_CACHE_H
+#endif
