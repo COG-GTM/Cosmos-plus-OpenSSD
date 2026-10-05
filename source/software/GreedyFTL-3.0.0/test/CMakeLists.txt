@@ -29,17 +29,6 @@ set(FIRMWARE_SOURCES
     "${FIRMWARE_DIR}/nvme/nvme_identify.c"
     "${FIRMWARE_DIR}/nvme/nvme_io_cmd.c"
 )
-set(COVERAGE_FIRMWARE_SOURCES
-    "${FIRMWARE_DIR}/address_translation.c"
-    "${FIRMWARE_DIR}/garbage_collection.c"
-    "${FIRMWARE_DIR}/data_buffer.c"
-    "${FIRMWARE_DIR}/request_allocation.c"
-    "${FIRMWARE_DIR}/request_schedule.c"
-    "${FIRMWARE_DIR}/request_transform.c"
-    "${FIRMWARE_DIR}/ftl_config.c"
-    "${FIRMWARE_DIR}/nvme/host_lld.c"
-    "${FIRMWARE_DIR}/nvme/nvme_identify.c"
-)
 set(HOST_FAKES
     "${CMAKE_CURRENT_SOURCE_DIR}/fakes/host_dram.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/fakes/host_reg_map.c"
@@ -91,11 +80,16 @@ if(ENABLE_COVERAGE)
     add_custom_target(coverage
         COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_BINARY_DIR}/coverage"
         COMMAND "${LCOV_EXECUTABLE}" --zerocounters --directory "${CMAKE_BINARY_DIR}"
+        COMMAND "${LCOV_EXECUTABLE}" --capture --initial --directory "${CMAKE_BINARY_DIR}"
+                --gcov-tool "${GCOV_TOOL}" --output-file "${CMAKE_BINARY_DIR}/coverage/base.info"
         COMMAND "${CMAKE_CTEST_COMMAND}" --output-on-failure
         COMMAND "${LCOV_EXECUTABLE}" --capture --directory "${CMAKE_BINARY_DIR}"
-                --gcov-tool "${GCOV_TOOL}" --output-file "${CMAKE_BINARY_DIR}/coverage/all.info"
+                --gcov-tool "${GCOV_TOOL}" --output-file "${CMAKE_BINARY_DIR}/coverage/test.info"
+        COMMAND "${LCOV_EXECUTABLE}" --add-tracefile "${CMAKE_BINARY_DIR}/coverage/base.info"
+                --add-tracefile "${CMAKE_BINARY_DIR}/coverage/test.info"
+                --output-file "${CMAKE_BINARY_DIR}/coverage/all.info"
         COMMAND "${LCOV_EXECUTABLE}" --extract "${CMAKE_BINARY_DIR}/coverage/all.info"
-                ${COVERAGE_FIRMWARE_SOURCES}
+                ${FIRMWARE_SOURCES}
                 --output-file "${CMAKE_BINARY_DIR}/coverage/firmware.info"
         COMMAND "${GENHTML_EXECUTABLE}" "${CMAKE_BINARY_DIR}/coverage/firmware.info"
                 --output-directory "${CMAKE_BINARY_DIR}/coverage/html"
