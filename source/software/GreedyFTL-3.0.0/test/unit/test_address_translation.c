@@ -189,6 +189,36 @@ void test_failed_program_books_grown_bad_block_update(void)
                            bbtInfoMapPtr->bbtInfo[target_die].grownBadUpdate);
 }
 
+void test_read_trigger_failure_during_bad_block_scan_is_retried(void)
+{
+    static unsigned char clean_bad[TOTAL_BLOCKS_PER_DIE];
+    const unsigned int bad_block = 17;
+    unsigned int die0 = Pcw2VdieTranslation(0, 0);
+    unsigned long clean_triggers;
+    unsigned long clean_raw;
+    unsigned int block;
+
+    fake_nand_reset();
+    fake_nand_mark_factory_bad(0, 0, bad_block);
+    ftl_fixture_init();
+    clean_triggers = fake_nand_get_stats()->read_trigger;
+    clean_raw = fake_nand_get_stats()->read_raw;
+    for (block = 0; block < TOTAL_BLOCKS_PER_DIE; ++block)
+        clean_bad[block] = phyBlockMapPtr->phyBlock[die0][block].bad;
+
+    fake_nand_reset();
+    fake_nand_mark_factory_bad(0, 0, bad_block);
+    fake_nand_fail_next(0, 0, FAKE_NAND_READ);
+    ftl_fixture_init();
+
+    TEST_ASSERT_EQUAL_UINT(clean_triggers + 1, fake_nand_get_stats()->read_trigger);
+    TEST_ASSERT_EQUAL_UINT(clean_raw, fake_nand_get_stats()->read_raw);
+    for (block = 0; block < TOTAL_BLOCKS_PER_DIE; ++block)
+        TEST_ASSERT_EQUAL_UINT8_MESSAGE(clean_bad[block], phyBlockMapPtr->phyBlock[die0][block].bad,
+                                        "retried read changed bad-block classification");
+    TEST_ASSERT_EQUAL_UINT(BLOCK_STATE_BAD, phyBlockMapPtr->phyBlock[die0][bad_block].bad);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -197,5 +227,6 @@ int main(void)
     RUN_TEST(test_write_uses_real_nand_request_path);
     RUN_TEST(test_factory_bad_blocks_remap_and_bbt_persists);
     RUN_TEST(test_failed_program_books_grown_bad_block_update);
+    RUN_TEST(test_read_trigger_failure_during_bad_block_scan_is_retried);
     return UNITY_END();
 }

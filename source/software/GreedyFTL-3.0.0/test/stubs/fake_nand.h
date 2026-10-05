@@ -18,6 +18,7 @@ void fake_nand_reset(void);
 void fake_nand_stats_reset(void);
 const fake_nand_stats *fake_nand_get_stats(void);
 void fake_nand_mark_factory_bad(unsigned int ch, unsigned int way, unsigned int block);
+/* Fails the next op on (ch, way) via its status check; FAKE_NAND_READ fails the read trigger. */
 void fake_nand_fail_next(unsigned int ch, unsigned int way, fake_nand_op op);
 unsigned char *fake_nand_page_ptr(unsigned int ch, unsigned int way, unsigned int row);
 int fake_nand_is_programmed(unsigned int ch, unsigned int way, unsigned int row);

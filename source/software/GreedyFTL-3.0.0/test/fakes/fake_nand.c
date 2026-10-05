@@ -77,8 +77,7 @@ static int consume_failure(unsigned int channel, unsigned int way, fake_nand_op 
     if (fail_next[channel][way] != (int)op)
         return 0;
     fail_next[channel][way] = -1;
-    if (op != FAKE_NAND_READ)
-        pending_status_fail[channel][way] = 1;
+    pending_status_fail[channel][way] = 1;
     return 1;
 }
 
@@ -169,6 +168,7 @@ void V2FReadPageTriggerAsync(V2FMCRegisters *dev, int way, unsigned int row)
 {
     unsigned int channel = nand_channel(dev);
     current_row[channel][way] = row;
+    consume_failure(channel, (unsigned int)way, FAKE_NAND_READ);
     ++stats.read_trigger;
 }
 
@@ -178,22 +178,19 @@ void V2FReadPageTransferAsync(V2FMCRegisters *dev, int way, void *data_buffer,
 {
     unsigned int channel = nand_channel(dev);
     fake_page *page = find_page(channel, (unsigned int)way, row, 0);
-    int failed = consume_failure(channel, (unsigned int)way, FAKE_NAND_READ);
     unsigned char *data = (unsigned char *)host_dram_resolve(data_buffer);
     unsigned char *spare = (unsigned char *)host_dram_resolve(spare_buffer);
     ++stats.read_transfer;
-    if (!failed) {
-        if (page == NULL) {
-            memset(data, 0xff, BYTES_PER_DATA_REGION_OF_PAGE);
-            memset(spare, 0xff, BYTES_PER_SPARE_REGION_OF_PAGE);
-        } else {
-            memcpy(data, page->data, BYTES_PER_DATA_REGION_OF_PAGE);
-            memcpy(spare, page->spare, BYTES_PER_SPARE_REGION_OF_PAGE);
-        }
+    if (page == NULL) {
+        memset(data, 0xff, BYTES_PER_DATA_REGION_OF_PAGE);
+        memset(spare, 0xff, BYTES_PER_SPARE_REGION_OF_PAGE);
+    } else {
+        memcpy(data, page->data, BYTES_PER_DATA_REGION_OF_PAGE);
+        memcpy(spare, page->spare, BYTES_PER_SPARE_REGION_OF_PAGE);
     }
     if (error_info != NULL) {
-        error_info[0] = failed ? 0 : 0x11000000U;
-        error_info[1] = failed ? 0 : 0xffffffffU;
+        error_info[0] = 0x11000000U;
+        error_info[1] = 0xffffffffU;
     }
     if (completion != NULL)
         *completion = 1;
@@ -207,13 +204,7 @@ void V2FReadPageTransferRawAsync(V2FMCRegisters *dev, int way, void *data_buffer
     unsigned int block;
     fake_page *page;
     unsigned char *buffer = (unsigned char *)host_dram_resolve(data_buffer);
-    int failed = consume_failure(channel, (unsigned int)way, FAKE_NAND_READ);
     ++stats.read_raw;
-    if (failed) {
-        if (completion != NULL)
-            *completion = 1;
-        return;
-    }
     page = find_page(channel, (unsigned int)way, row, 0);
     memset(buffer, 0xff, BYTES_PER_NAND_ROW);
     if (page != NULL) {
@@ -278,7 +269,7 @@ unsigned int V2FStatusCheckSync(V2FMCRegisters *dev, int way)
 {
     unsigned int status;
     V2FStatusCheckAsync(dev, way, &status);
-    return status;
+    return status >> 1;
 }
 
 unsigned int V2FReadyBusyAsync(V2FMCRegisters *dev)
